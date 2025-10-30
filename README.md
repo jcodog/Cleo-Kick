@@ -1,7 +1,7 @@
 # Cleo Kick ChatBot
 
-[![Vitest](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/tests.json&cacheSeconds=3600)](https://jcodog.github.io/Cleo-Kick/tests)
-[![Coverage](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/coverage.json&cacheSeconds=3600)](https://jcodog.github.io/Cleo-Kick/)
+[![Vitest](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/tests.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/tests)
+[![Coverage](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/coverage.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/)
 
 A Cloudflare Workers project powered by [Bun](https://bun.sh/), [TypeScript](https://www.typescriptlang.org/), and [Hono](https://hono.dev/).
 
