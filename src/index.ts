@@ -1,4 +1,9 @@
 import { Hono } from "hono";
+import {
+  KickWebhookError,
+  KickWebhookSignatureError,
+  validateKickWebhook,
+} from "./lib/functions/validateWebhook";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
@@ -17,14 +22,28 @@ app.get("/", (c) => {
 
 app.post("/webhook", async (c) => {
   try {
-    const event = await c.req.json<Record<string, unknown>>();
+    const result = await validateKickWebhook(c.req.raw);
 
-    console.log("Received Kick event", event);
+    console.log("Verified Kick webhook", {
+      messageId: result.messageId,
+      eventType: result.eventType,
+      knownType: result.knownType,
+    });
 
     return c.json({ received: true });
   } catch (error) {
-    console.error("Invalid webhook payload", error);
-    return c.json({ error: "Invalid JSON payload" }, 400);
+    if (error instanceof KickWebhookSignatureError) {
+      console.warn("Rejected Kick webhook", { reason: error.message });
+      return c.json({ error: "Unauthorized" }, error.status);
+    }
+
+    if (error instanceof KickWebhookError) {
+      console.error("Invalid Kick webhook", { reason: error.message });
+      return c.json({ error: error.message }, error.status);
+    }
+
+    console.error("Unexpected webhook failure", error);
+    return c.json({ error: "Internal Server Error" }, 500);
   }
 });
 
