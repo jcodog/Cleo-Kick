@@ -29,11 +29,23 @@ bun run typecheck
 
 ## Deployment
 
-```bash
-bun run deploy
-```
+Deployment is handled automatically via the GitHub ➜ Cloudflare Workers integration. Pushes to the default branch trigger Cloudflare to build the Worker using Bun and publish it with the settings in `wrangler.json`.
 
-Wrangler will use the configuration in `wrangler.json` to deploy the Worker to Cloudflare.
+## Observability & Error Logging
+
+- Cloudflare observability is enabled in `wrangler.json` to surface traces and logs inside the Workers dashboard.
+- Configure a Cloudflare D1 database and update the `ERROR_LOG_DB` binding in `wrangler.json` (`database_id`/`database_name`).
+- Create the backing table once (Wrangler CLI or dashboard):
+
+  ```bash
+  bunx wrangler d1 execute kick-bot-errors --command "CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), status INTEGER, message TEXT NOT NULL, context TEXT);"
+  ```
+
+- Each webhook failure is recorded with status, message, and JSON context. Review entries via the Cloudflare dashboard or:
+
+  ```bash
+  bunx wrangler d1 execute kick-bot-errors --command "SELECT * FROM error_logs ORDER BY created_at DESC LIMIT 20;"
+  ```
 
 ## Configuration
 
@@ -48,6 +60,6 @@ Wrangler will use the configuration in `wrangler.json` to deploy the Worker to C
 ## Project Structure
 
 - `src/index.ts` — Hono application entry point exported as the Worker.
-- `wrangler.json` — Cloudflare Workers configuration for Wrangler.
+- `wrangler.json` — Cloudflare Workers configuration consumed by the CI deployment (includes observability + D1 bindings).
 - `tsconfig.json` — TypeScript compiler settings tailored for Workers.
 - `bunfig.toml` — Bun configuration.
