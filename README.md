@@ -50,6 +50,8 @@ Inspect the HTML coverage report (thresholds are locked at 100%):
 bun run coverage
 ```
 
+The CI workflow publishes the HTML report to GitHub Pages at <https://jcodog.github.io/Cleo-Kick/> once it has run at least once, so the generated files stay out of the repository.
+
 ## Deployment
 
 Deployment is handled automatically via the GitHub ➜ Cloudflare Workers integration. Pushes to the default branch trigger Cloudflare to build the Worker using Bun and publish it with the settings in `wrangler.json`.
