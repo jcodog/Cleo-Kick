@@ -4,3 +4,6 @@ bun.lock
 bun.lockb
 .wrangler/
 .dev.vars
+priv_key.txt
+pub_key_record.txt
+priv_key.pem

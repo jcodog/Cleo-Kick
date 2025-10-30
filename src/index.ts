@@ -4,8 +4,11 @@ import {
   KickWebhookSignatureError,
   validateKickWebhook,
 } from "./lib/functions/validateWebhook";
-import { logErrorToD1, type ErrorLogEntry } from "./lib/functions/logError";
-import { notifyDeveloperOfError } from "./lib/functions/notifyDeveloper";
+import {
+  logErrorToD1,
+  type ErrorLogEntry,
+} from "./lib/functions/errors/logError";
+import { notifyDeveloperOfError } from "./lib/functions/errors/notifyDeveloper";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
