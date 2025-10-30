@@ -8,6 +8,7 @@
     "typecheck": "bun run tsc --noEmit"
   },
   "dependencies": {
+    "@jconet-ltd/mailchannels-client": "^1.1.1",
     "hono": "^4.10.4",
     "kick-api-types": "^1.0.6"
   },

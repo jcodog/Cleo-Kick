@@ -5,10 +5,18 @@ import {
   validateKickWebhook,
 } from "./lib/functions/validateWebhook";
 import { logErrorToD1, type ErrorLogEntry } from "./lib/functions/logError";
+import { notifyDeveloperOfError } from "./lib/functions/notifyDeveloper";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
   readonly ERROR_LOG_DB?: D1Database;
+  readonly DEVELOPER_EMAIL?: string;
+  readonly MAILCHANNELS_API_KEY?: string;
+  readonly MAILCHANNELS_DKIM_DOMAIN?: string;
+  readonly MAILCHANNELS_DKIM_SELECTOR?: string;
+  readonly MAILCHANNELS_DKIM_PRIVATE_KEY?: string;
+  readonly MAILCHANNELS_FROM_EMAIL?: string;
+  readonly MAILCHANNELS_FROM_NAME?: string;
 }
 
 let missingErrorDbWarningShown = false;
@@ -62,6 +70,8 @@ app.post("/webhook", async (c) => {
 });
 
 async function recordError(env: Env, entry: ErrorLogEntry): Promise<void> {
+  const timestamp = new Date().toISOString();
+
   if (!env.ERROR_LOG_DB) {
     if (!missingErrorDbWarningShown) {
       console.warn(
@@ -69,13 +79,18 @@ async function recordError(env: Env, entry: ErrorLogEntry): Promise<void> {
       );
       missingErrorDbWarningShown = true;
     }
-    return;
+  } else {
+    try {
+      await logErrorToD1(env.ERROR_LOG_DB, entry);
+    } catch (persistError) {
+      console.error("Failed to persist error log", persistError);
+    }
   }
 
   try {
-    await logErrorToD1(env.ERROR_LOG_DB, entry);
-  } catch (persistError) {
-    console.error("Failed to persist error log", persistError);
+    await notifyDeveloperOfError(env, entry, timestamp);
+  } catch (notifyError) {
+    console.error("Failed to send developer notification", notifyError);
   }
 }
 
