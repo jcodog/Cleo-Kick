@@ -50,7 +50,7 @@ Inspect the HTML coverage report (thresholds are locked at 100%):
 bun run coverage
 ```
 
-The CI workflow publishes the HTML report to GitHub Pages at <https://jcodog.github.io/Cleo-Kick/> once it has run at least once, so the generated files stay out of the repository.
+The CI workflow publishes the HTML report and a Vitest results summary (at `/tests.html`) to GitHub Pages at <https://jcodog.github.io/Cleo-Kick/> once it has run at least once, so the generated files stay out of the repository.
 
 ## Deployment
 

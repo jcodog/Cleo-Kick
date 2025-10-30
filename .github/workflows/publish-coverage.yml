@@ -33,6 +33,9 @@ jobs:
       - name: Generate coverage report
         run: bun run coverage
 
+      - name: Build test results page
+        run: node scripts/render-vitest-report.mjs
+
       - name: Upload coverage artifact
         uses: actions/upload-pages-artifact@v3
         with:
