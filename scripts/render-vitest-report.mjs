@@ -8,6 +8,10 @@ const coverageDir = join(projectRoot, "coverage");
 const jsonPath = join(coverageDir, "vitest-report.json");
 const outputPath = join(coverageDir, "tests.html");
 
+const args = new Set(process.argv.slice(2));
+const summaryRequested = args.has("--summary");
+const htmlRequested = !summaryRequested && !args.has("--no-html");
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -123,9 +127,10 @@ async function main() {
   const data = JSON.parse(raw);
   await mkdir(coverageDir, { recursive: true });
 
-  const suites = (data.testResults ?? []).map(renderSuite).join("");
+  if (htmlRequested) {
+    const suites = (data.testResults ?? []).map(renderSuite).join("");
 
-  const html = `<!doctype html>
+    const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -254,8 +259,39 @@ async function main() {
   </body>
 </html>`;
 
-  await writeFile(outputPath, html, "utf8");
-  console.log("Test results written to", outputPath);
+    await writeFile(outputPath, html, "utf8");
+    console.log("Test results written to", outputPath);
+  }
+
+  if (summaryRequested) {
+    const summaryMarkdown = renderSummaryMarkdown(data);
+    const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+    if (summaryPath) {
+      await writeFile(summaryPath, summaryMarkdown + "\n", { flag: "a" });
+      console.log("Vitest summary appended to job summary");
+    } else {
+      console.log(summaryMarkdown);
+    }
+  }
+}
+
+function renderSummaryMarkdown(data) {
+  const suites = data.numTotalTestSuites ?? 0;
+  const tests = data.numTotalTests ?? 0;
+  const passed = data.numPassedTests ?? 0;
+  const failed = data.numFailedTests ?? 0;
+  const skipped = data.numPendingTests ?? 0;
+  const emoji = failed > 0 ? "❌" : "✅";
+  const duration = formatDuration(data.startTime, data.endTime);
+
+  return `### ${emoji} Vitest Summary
+- Suites: ${suites}
+- Tests: ${tests}
+- Passed: ${passed}
+- Failed: ${failed}
+- Skipped: ${skipped}
+- Duration: ${duration}
+`;
 }
 
 main().catch((error) => {

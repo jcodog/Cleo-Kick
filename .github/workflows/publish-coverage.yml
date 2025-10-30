@@ -10,6 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  statuses: write
 
 concurrency:
   group: pages
@@ -35,6 +36,12 @@ jobs:
 
       - name: Build test results page
         run: node scripts/render-vitest-report.mjs
+
+      - name: Publish Vitest summary to job summary
+        run: node scripts/render-vitest-report.mjs --summary
+
+      - name: Generate badge endpoints
+        run: node scripts/generate-badges.mjs
 
       - name: Upload coverage artifact
         uses: actions/upload-pages-artifact@v3
