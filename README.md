@@ -1,5 +1,6 @@
 # Cleo Kick ChatBot
 
+[![Workers Build](https://img.shields.io/github/checks-status/jcodog/Cleo-Kick/main?label=Workers%20Build)](https://kickbot.cleoai.cloud)
 [![Vitest](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/tests.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/tests)
 [![Coverage](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/coverage.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/)
 
