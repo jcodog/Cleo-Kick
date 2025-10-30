@@ -1,5 +1,8 @@
 # Kick Bot
 
+![Vitest](https://img.shields.io/badge/tests-vitest%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+
 A Cloudflare Workers project powered by [Bun](https://bun.sh/), [TypeScript](https://www.typescriptlang.org/), and [Hono](https://hono.dev/).
 
 ## Prerequisites
@@ -25,6 +28,26 @@ This starts Wrangler in development mode and serves the Worker locally.
 
 ```bash
 bun run typecheck
+```
+
+## Testing
+
+Run the Vitest suite once:
+
+```bash
+bun run test
+```
+
+Run in watch mode:
+
+```bash
+bun run test:watch
+```
+
+Inspect the HTML coverage report (thresholds are locked at 100%):
+
+```bash
+bun run coverage
 ```
 
 ## Deployment
