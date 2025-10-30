@@ -11,6 +11,7 @@ permissions:
   pages: write
   id-token: write
   statuses: write
+  checks: read
 
 concurrency:
   group: pages
@@ -42,6 +43,11 @@ jobs:
 
       - name: Generate badge endpoints
         run: node scripts/generate-badges.mjs
+
+      - name: Generate Cloudflare Worker badge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/render-worker-badge.mjs
 
       - name: Upload coverage artifact
         uses: actions/upload-pages-artifact@v3
