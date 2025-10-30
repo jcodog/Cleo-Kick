@@ -5,6 +5,7 @@ import type { Env } from "../src/index";
 const mockValidateKickWebhook = vi.fn();
 const mockLogErrorToD1 = vi.fn();
 const mockNotifyDeveloperOfError = vi.fn();
+const mockGetPagesBadge = vi.fn();
 
 class MockKickWebhookError extends Error {
   status: number;
@@ -37,11 +38,16 @@ vi.mock("../src/lib/functions/errors/notifyDeveloper", () => ({
   notifyDeveloperOfError: mockNotifyDeveloperOfError,
 }));
 
+vi.mock("../src/lib/functions/cloudflarePagesBadge", () => ({
+  getPagesBadge: mockGetPagesBadge,
+}));
+
 async function loadApp() {
   vi.resetModules();
   mockValidateKickWebhook.mockReset();
   mockLogErrorToD1.mockReset();
   mockNotifyDeveloperOfError.mockReset();
+  mockGetPagesBadge.mockReset();
   return (await import("../src/index")).default;
 }
 
@@ -241,5 +247,148 @@ describe("index routes", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+  });
+
+  test("GET /badges/pages returns 400 when project missing", async () => {
+    const app = await loadApp();
+
+    const response = await app.request("/badges/pages", {}, {
+      CLOUDFLARE_ACCOUNT_ID: "acct",
+      CLOUDFLARE_API_TOKEN: "token",
+    } as Env);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Missing 'project' query parameter",
+    });
+  });
+
+  test("GET /badges/pages returns 500 when credentials missing", async () => {
+    const app = await loadApp();
+
+    const response = await app.request(
+      "/badges/pages?project=kick-pages",
+      {},
+      {} as Env
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "Cloudflare API credentials not configured",
+    });
+  });
+
+  test("GET /badges/pages returns badge payload", async () => {
+    const app = await loadApp();
+
+    mockGetPagesBadge.mockResolvedValueOnce({
+      badge: {
+        schemaVersion: 1,
+        label: "Cloudflare Pages",
+        message: "success",
+        color: "success",
+        isError: false,
+        namedLogo: "cloudflare",
+        cacheSeconds: 60,
+      },
+      rawStatus: "success",
+      normalizedStatus: "success",
+    });
+
+    const env = {
+      CLOUDFLARE_ACCOUNT_ID: "acct",
+      CLOUDFLARE_API_TOKEN: "token",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/badges/pages?project=kick-pages",
+      {},
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      schemaVersion: 1,
+      label: "Cloudflare Pages",
+      message: "success",
+      color: "success",
+      isError: false,
+      namedLogo: "cloudflare",
+      cacheSeconds: 60,
+    });
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(response.headers.get("CDN-Cache-Control")).toBe(
+      "public, max-age=60"
+    );
+  });
+
+  test("GET /badges/pages logs warning when status unknown", async () => {
+    const app = await loadApp();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    mockGetPagesBadge.mockResolvedValueOnce({
+      badge: {
+        schemaVersion: 1,
+        label: "Cloudflare Pages",
+        message: "unknown",
+        color: "inactive",
+        isError: true,
+        namedLogo: "cloudflare",
+        cacheSeconds: 60,
+      },
+      rawStatus: "mystery",
+      normalizedStatus: "unknown",
+    });
+
+    const env = {
+      CLOUDFLARE_ACCOUNT_ID: "acct",
+      CLOUDFLARE_API_TOKEN: "token",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/badges/pages?project=kick-pages",
+      {},
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(warnSpy).toHaveBeenCalledWith("Resolved unknown Pages status", {
+      projectName: "kick-pages",
+      rawStatus: "mystery",
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  test("GET /badges/pages returns 502 when resolution fails", async () => {
+    const app = await loadApp();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockGetPagesBadge.mockRejectedValueOnce(new Error("boom"));
+
+    const env = {
+      CLOUDFLARE_ACCOUNT_ID: "acct",
+      CLOUDFLARE_API_TOKEN: "token",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/badges/pages?project=kick-pages",
+      {},
+      env as Env
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: "Unable to resolve Cloudflare Pages status",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Failed to resolve Cloudflare Pages badge",
+      {
+        projectName: "kick-pages",
+        error: expect.any(Error),
+      }
+    );
+
+    errorSpy.mockRestore();
   });
 });
