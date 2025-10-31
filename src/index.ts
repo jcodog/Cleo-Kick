@@ -9,7 +9,6 @@ import {
   type ErrorLogEntry,
 } from "./lib/functions/errors/logError";
 import { notifyDeveloperOfError } from "./lib/functions/errors/notifyDeveloper";
-import { getPagesBadge } from "./lib/functions/cloudflarePagesBadge";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
@@ -21,8 +20,6 @@ export interface Env {
   readonly MAILCHANNELS_DKIM_PRIVATE_KEY?: string;
   readonly MAILCHANNELS_FROM_EMAIL?: string;
   readonly MAILCHANNELS_FROM_NAME?: string;
-  readonly CLOUDFLARE_ACCOUNT_ID?: string;
-  readonly CLOUDFLARE_API_TOKEN?: string;
 }
 
 let missingErrorDbWarningShown = false;
@@ -36,44 +33,6 @@ app.get("/", (c) => {
   }
 
   return c.redirect(dashboardUrl, 302);
-});
-
-app.get("/badges/pages", async (c) => {
-  const projectName = c.req.query("project");
-
-  if (!projectName) {
-    return c.json({ error: "Missing 'project' query parameter" }, 400);
-  }
-
-  if (!c.env.CLOUDFLARE_ACCOUNT_ID || !c.env.CLOUDFLARE_API_TOKEN) {
-    return c.json({ error: "Cloudflare API credentials not configured" }, 500);
-  }
-
-  try {
-    const { badge, rawStatus, normalizedStatus } = await getPagesBadge(
-      c.env,
-      projectName
-    );
-
-    if (normalizedStatus === "unknown") {
-      console.warn("Resolved unknown Pages status", {
-        projectName,
-        rawStatus,
-      });
-    }
-
-    return c.json(badge, 200, {
-      "Cache-Control": "public, max-age=60",
-      "CDN-Cache-Control": "public, max-age=60",
-    });
-  } catch (error) {
-    console.error("Failed to resolve Cloudflare Pages badge", {
-      projectName,
-      error,
-    });
-
-    return c.json({ error: "Unable to resolve Cloudflare Pages status" }, 502);
-  }
 });
 
 app.post("/webhook", async (c) => {

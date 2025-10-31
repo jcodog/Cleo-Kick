@@ -1,6 +1,5 @@
 # Cleo Kick ChatBot
 
-[![Cloudflare Pages](https://img.shields.io/endpoint?url=https://kickbot.cleoai.cloud/badges/pages?project=cleo-kick&cacheSeconds=60)](https://kickbot.cleoai.cloud)
 [![Vitest](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/tests.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/tests.html)
 [![Coverage](https://img.shields.io/endpoint?url=https://jcodog.github.io/Cleo-Kick/badges/coverage.json&cacheSeconds=300)](https://jcodog.github.io/Cleo-Kick/)
 
@@ -76,14 +75,12 @@ Deployment is handled automatically via the GitHub ➜ Cloudflare Workers integr
 ## Configuration
 
 - Set `DASHBOARD_URL` in `wrangler.json` (or via Cloudflare dashboard) to tell the root route where to redirect users for chatbot management.
-- Provide `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (Pages:Read scope) so the badge endpoint can query the Cloudflare Pages API.
 
 ## Routes
 
 - `GET /` — redirects to the configured dashboard URL.
 - `POST /webhook` — accepts Kick webhook events (expects JSON payloads).
 - `GET /health` — lightweight readiness probe.
-- `GET /badges/pages` — Shields.io endpoint for the Cloudflare Pages deployment status (`?project=<name>`).
 
 ## Project Structure
 
