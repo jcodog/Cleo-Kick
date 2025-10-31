@@ -83,6 +83,7 @@ describe("index routes", () => {
       signature: "sig",
       eventVersion: "1",
       rawBody: "{}",
+      payload: { eventType: "chat.message.sent" },
     });
 
     const response = await app.request(
