@@ -1,9 +1,6 @@
 import { Hono } from "hono";
-import {
-  KickWebhookError,
-  KickWebhookSignatureError,
-  validateKickWebhook,
-} from "./lib/functions/validateWebhook";
+import type { KickWebhookValidationResult } from "./lib/functions/validateWebhook";
+import { createKickWebhookValidationMiddleware } from "./lib/functions/middleware";
 import {
   logErrorToD1,
   type ErrorLogEntry,
@@ -24,7 +21,17 @@ export interface Env {
 
 let missingErrorDbWarningShown = false;
 
-const app = new Hono<{ Bindings: Env }>();
+type AppEnv = {
+  Bindings: Env;
+  Variables: {
+    kickWebhook: KickWebhookValidationResult;
+  };
+};
+
+const app = new Hono<AppEnv>();
+
+const validateKickWebhookMiddleware =
+  createKickWebhookValidationMiddleware<AppEnv>(recordError);
 
 app.get("/", (c) => {
   const dashboardUrl = c.env.DASHBOARD_URL;
@@ -35,42 +42,23 @@ app.get("/", (c) => {
   return c.redirect(dashboardUrl, 302);
 });
 
-app.post("/webhook", async (c) => {
-  try {
-    const result = await validateKickWebhook(c.req.raw);
+app.use("/webhook", validateKickWebhookMiddleware);
 
-    console.log("Verified Kick webhook", {
-      messageId: result.messageId,
-      eventType: result.eventType,
-      knownType: result.knownType,
-    });
+app.post("/webhook", (c) => {
+  const result = c.get("kickWebhook");
 
-    return c.json({ received: true });
-  } catch (error) {
-    await recordError(c.env, {
-      message: error instanceof Error ? error.message : "Unknown webhook error",
-      status: error instanceof KickWebhookError ? error.status : 500,
-      context: {
-        path: c.req.path,
-        eventType: c.req.header("Kick-Event-Type"),
-        messageId: c.req.header("Kick-Event-Message-Id"),
-      },
-    });
+  console.log("Verified Kick webhook", {
+    messageId: result.messageId,
+    eventType: result.eventType,
+    knownType: result.knownType,
+  });
 
-    if (error instanceof KickWebhookSignatureError) {
-      console.warn("Rejected Kick webhook", { reason: error.message });
-      return c.json({ error: "Unauthorized" }, error.status);
-    }
-
-    if (error instanceof KickWebhookError) {
-      console.error("Invalid Kick webhook", { reason: error.message });
-      return c.json({ error: error.message }, error.status);
-    }
-
-    console.error("Unexpected webhook failure", error);
-    return c.json({ error: "Internal Server Error" }, 500);
-  }
+  return c.json({ received: true });
 });
+
+app.get("/health", (c) => c.text("ok"));
+
+export default app;
 
 async function recordError(env: Env, entry: ErrorLogEntry): Promise<void> {
   const timestamp = new Date().toISOString();
@@ -96,7 +84,3 @@ async function recordError(env: Env, entry: ErrorLogEntry): Promise<void> {
     console.error("Failed to send developer notification", notifyError);
   }
 }
-
-app.get("/health", (c) => c.text("ok"));
-
-export default app;

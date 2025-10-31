@@ -1,4 +1,6 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { notifyDeveloperOfError } from "./notifyDeveloper";
+import { Env } from "../../..";
 
 interface ErrorLogEntry {
   message: string;
@@ -39,6 +41,36 @@ export async function logErrorToD1(
     )
     .bind(entry.status ?? null, entry.message, contextJson)
     .run();
+}
+
+let missingErrorDbWarningShown = false;
+
+export async function recordError(
+  env: Env,
+  entry: ErrorLogEntry
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+
+  if (!env.ERROR_LOG_DB) {
+    if (!missingErrorDbWarningShown) {
+      console.warn(
+        "Missing ERROR_LOG_DB binding; skipping persisted error logs."
+      );
+      missingErrorDbWarningShown = true;
+    }
+  } else {
+    try {
+      await logErrorToD1(env.ERROR_LOG_DB, entry);
+    } catch (persistError) {
+      console.error("Failed to persist error log", persistError);
+    }
+  }
+
+  try {
+    await notifyDeveloperOfError(env, entry, timestamp);
+  } catch (notifyError) {
+    console.error("Failed to send developer notification", notifyError);
+  }
 }
 
 export type { ErrorLogEntry };
