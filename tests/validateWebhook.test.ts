@@ -100,6 +100,7 @@ describe("validateKickWebhook", () => {
       "channel.subscription.gifts",
       "channel.subscription.new",
       "livestream.status.updated",
+      "kicks.gifted",
     ];
 
     for (const [index, eventType] of eventTypes.entries()) {
@@ -459,6 +460,82 @@ describe("validateKickWebhook", () => {
     await validateKickWebhook(request, { publicKeyPEM: pem, fetcher });
 
     expect(fetcher).not.toHaveBeenCalled();
+    expect(importKeySpy).toHaveBeenCalledTimes(1);
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+
+    importKeySpy.mockRestore();
+    verifySpy.mockRestore();
+  });
+
+  test("falls back to embedded public key when remote payload invalid", async () => {
+    const { validateKickWebhook } = await import(
+      "../src/lib/functions/validateWebhook"
+    );
+
+    const fetcher = vi.fn<Parameters<typeof fetch>, Promise<Response>>(
+      async () =>
+        new Response(JSON.stringify({ data: { public_key: "invalid-key" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+    );
+
+    const { importKeySpy, verifySpy } = mockCrypto(true);
+
+    const request = new Request("https://example.com", {
+      method: "POST",
+      body: JSON.stringify({
+        eventType: "chat.message.sent",
+        eventVersion: "1",
+      }),
+      headers: {
+        "Kick-Event-Message-Id": "msg",
+        "Kick-Event-Message-Timestamp": new Date().toISOString(),
+        "Kick-Event-Signature": "SGVsbG8=",
+        "Kick-Event-Type": "chat.message.sent",
+        "Kick-Event-Version": "1",
+      },
+    });
+
+    await validateKickWebhook(request, { fetcher });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(importKeySpy).toHaveBeenCalledTimes(1);
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+
+    importKeySpy.mockRestore();
+    verifySpy.mockRestore();
+  });
+
+  test("falls back when public key endpoint responds with error", async () => {
+    const { validateKickWebhook } = await import(
+      "../src/lib/functions/validateWebhook"
+    );
+
+    const fetcher = vi.fn<Parameters<typeof fetch>, Promise<Response>>(
+      async () => new Response("Unavailable", { status: 503 })
+    );
+
+    const { importKeySpy, verifySpy } = mockCrypto(true);
+
+    const request = new Request("https://example.com", {
+      method: "POST",
+      body: JSON.stringify({
+        eventType: "chat.message.sent",
+        eventVersion: "1",
+      }),
+      headers: {
+        "Kick-Event-Message-Id": "msg",
+        "Kick-Event-Message-Timestamp": new Date().toISOString(),
+        "Kick-Event-Signature": "SGVsbG8=",
+        "Kick-Event-Type": "chat.message.sent",
+        "Kick-Event-Version": "1",
+      },
+    });
+
+    await validateKickWebhook(request, { fetcher });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(importKeySpy).toHaveBeenCalledTimes(1);
     expect(verifySpy).toHaveBeenCalledTimes(1);
 

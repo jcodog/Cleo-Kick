@@ -28,15 +28,22 @@ vi.mock("@jconet-ltd/mailchannels-client", () => {
     }
   }
 
-  const MailChannelsClient = vi.fn().mockImplementation(() => ({
-    sendEmail: sendEmailSpy,
-  }));
+  const MailChannelsClient = vi.fn(function MailChannelsClient() {
+    return {
+      sendEmail: sendEmailSpy,
+    };
+  });
 
   return {
     MailChannelsClient,
     MailChannelsError,
   };
 });
+
+const importNotifyModule = () =>
+  vi.importActual<typeof import("../src/lib/functions/errors/notifyDeveloper")>(
+    "../src/lib/functions/errors/notifyDeveloper.ts"
+  );
 
 describe("notifyDeveloperOfError", () => {
   beforeEach(() => {
@@ -47,9 +54,7 @@ describe("notifyDeveloperOfError", () => {
   test("warns once when configuration is incomplete", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { notifyDeveloperOfError } = await import(
-      "../src/lib/functions/errors/notifyDeveloper"
-    );
+    const { notifyDeveloperOfError } = await importNotifyModule();
 
     const baseEntry = { message: "Test error" };
     const env = { MAILCHANNELS_API_KEY: undefined };
@@ -65,9 +70,7 @@ describe("notifyDeveloperOfError", () => {
 
   test("sends formatted email when configuration is complete", async () => {
     sendEmailSpy.mockResolvedValueOnce(undefined);
-    const { notifyDeveloperOfError } = await import(
-      "../src/lib/functions/errors/notifyDeveloper"
-    );
+    const { notifyDeveloperOfError } = await importNotifyModule();
 
     const timestamp = "2025-10-30T12:00:00Z";
     const env = {
@@ -120,9 +123,7 @@ describe("notifyDeveloperOfError", () => {
       )
     );
 
-    const { notifyDeveloperOfError } = await import(
-      "../src/lib/functions/errors/notifyDeveloper"
-    );
+    const { notifyDeveloperOfError } = await importNotifyModule();
 
     const env = {
       MAILCHANNELS_API_KEY: "key",
@@ -153,9 +154,7 @@ describe("notifyDeveloperOfError", () => {
 
     sendEmailSpy.mockRejectedValueOnce(new Error("boom"));
 
-    const { notifyDeveloperOfError } = await import(
-      "../src/lib/functions/errors/notifyDeveloper"
-    );
+    const { notifyDeveloperOfError } = await importNotifyModule();
 
     const env = {
       MAILCHANNELS_API_KEY: "key",
@@ -183,9 +182,7 @@ describe("notifyDeveloperOfError", () => {
   test("serializes symbol context to empty object placeholder", async () => {
     sendEmailSpy.mockResolvedValueOnce(undefined);
 
-    const { notifyDeveloperOfError } = await import(
-      "../src/lib/functions/errors/notifyDeveloper"
-    );
+    const { notifyDeveloperOfError } = await importNotifyModule();
 
     const env = {
       MAILCHANNELS_API_KEY: "key",
