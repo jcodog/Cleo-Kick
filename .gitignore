@@ -4,7 +4,9 @@ bun.lock
 bun.lockb
 .wrangler/
 .dev.vars
+.env*
 priv_key.txt
 pub_key_record.txt
 priv_key.pem
 coverage/
+/src/prisma/

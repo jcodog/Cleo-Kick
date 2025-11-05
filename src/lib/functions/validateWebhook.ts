@@ -1,6 +1,7 @@
 import type {
   ChannelFollowEvent,
   ChatMessageEvent,
+  KicksGiftedEvent,
   LivestreamStatusUpdatedEvent,
   NewSubscriptionEvent,
   SubscriptionGiftEvent,
@@ -41,7 +42,8 @@ export type KickWebhookPayload =
   | SubscriptionRenewalEvent
   | SubscriptionGiftEvent
   | NewSubscriptionEvent
-  | LivestreamStatusUpdatedEvent;
+  | LivestreamStatusUpdatedEvent
+  | KicksGiftedEvent;
 
 export type KickWebhookEventType = KickWebhookPayload["eventType"];
 
@@ -354,6 +356,12 @@ function coercePayload(
         eventVersion: version,
         ...payload,
       } as LivestreamStatusUpdatedEvent;
+    case "kicks.gifted":
+      return {
+        eventType: "kicks.gifted",
+        eventVersion: version,
+        ...payload,
+      } as KicksGiftedEvent;
     default:
       return null;
   }
