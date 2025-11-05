@@ -1,11 +1,33 @@
-import { Hono } from "hono";
-import type { KickWebhookValidationResult } from "./lib/functions/validateWebhook";
+import { Context, Hono } from "hono";
+import type {
+  KickWebhookEventType,
+  KickWebhookValidationResult,
+} from "./lib/functions/validateWebhook";
 import { createKickWebhookValidationMiddleware } from "./lib/functions/middleware";
 import {
   logErrorToD1,
   type ErrorLogEntry,
 } from "./lib/functions/errors/logError";
 import { notifyDeveloperOfError } from "./lib/functions/errors/notifyDeveloper";
+import { getDb } from "./lib/prisma";
+import { env } from "hono/adapter";
+import { followEvent } from "./lib/events/follow";
+import {
+  ChannelFollowEvent,
+  KicksGiftedEvent,
+  LivestreamStatusUpdatedEvent,
+  NewSubscriptionEvent,
+  SubscriptionGiftEvent,
+  SubscriptionRenewalEvent,
+} from "kick-api-types/payloads";
+import { BlankInput } from "hono/types";
+import { livestreamStatusUpdate } from "./lib/events/livestream";
+import {
+  giftedSubs,
+  newSubscriber,
+  renewedSub,
+} from "./lib/events/subscriptions";
+import { kicksGifted } from "./lib/events/kicks";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
@@ -17,6 +39,8 @@ export interface Env {
   readonly MAILCHANNELS_DKIM_PRIVATE_KEY?: string;
   readonly MAILCHANNELS_FROM_EMAIL?: string;
   readonly MAILCHANNELS_FROM_NAME?: string;
+  readonly DATABASE_URL?: string;
+  readonly DIRECT_URL?: string;
 }
 
 let missingErrorDbWarningShown = false;
@@ -44,16 +68,47 @@ app.get("/", (c) => {
 
 app.use("/webhook", validateKickWebhookMiddleware);
 
-app.post("/webhook", (c) => {
+export type context = Context<AppEnv, "/webhook", BlankInput>;
+
+app.post("/webhook", async (c) => {
   const result = c.get("kickWebhook");
+  const db = getDb(env(c).DATABASE_URL ?? "");
 
-  console.log("Verified Kick webhook", {
-    messageId: result.messageId,
-    eventType: result.eventType,
-    knownType: result.knownType,
-  });
+  switch (result.eventType as KickWebhookEventType) {
+    case "channel.followed":
+      return await followEvent(result.payload as ChannelFollowEvent, db, c);
 
-  return c.json({ received: true });
+    case "livestream.status.updated":
+      return await livestreamStatusUpdate(
+        result.payload as LivestreamStatusUpdatedEvent,
+        db,
+        c
+      );
+
+    case "channel.subscription.new":
+      return await newSubscriber(result.payload as NewSubscriptionEvent, db, c);
+
+    case "channel.subscription.gifts":
+      return await giftedSubs(result.payload as SubscriptionGiftEvent, db, c);
+
+    case "channel.subscription.renewal":
+      return await renewedSub(
+        result.payload as SubscriptionRenewalEvent,
+        db,
+        c
+      );
+
+    case "kicks.gifted":
+      return await kicksGifted(result.payload as KicksGiftedEvent, db, c);
+
+    default:
+      return c.json(
+        {
+          message: "Unknown event type",
+        },
+        { status: 422 }
+      );
+  }
 });
 
 app.get("/health", (c) => c.text("ok"));

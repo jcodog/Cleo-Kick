@@ -1,0 +1,34 @@
+import {
+  RESTPostChatMessageBody,
+  RESTPostChatMessageResult,
+} from "kick-api-types/rest";
+
+export const sendMessage = async ({
+  broadcaster,
+  message,
+}: {
+  broadcaster: { name: string; accessToken: string };
+  message: string;
+}): Promise<{ sent: boolean; message: string; status: number }> => {
+  const res = await fetch("", {
+    headers: {
+      Authorization: `Bearer ${broadcaster.accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "*/*",
+      "Content-Length": "118",
+    },
+    body: JSON.stringify({
+      content: message,
+      type: "bot",
+    } as RESTPostChatMessageBody),
+  });
+
+  if (!res.ok) {
+    const data = (await res.json()) as RESTPostChatMessageResult;
+    return { sent: false, message: data.message, status: res.status };
+  }
+
+  const data = (await res.json()) as RESTPostChatMessageResult;
+
+  return { sent: data.data.is_sent, message: data.message, status: res.status };
+};
