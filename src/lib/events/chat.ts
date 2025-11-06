@@ -61,4 +61,7 @@ export const commandReply = async (
       );
     }
   }
+
+  console.log("[Chat] Unknown command:", JSON.stringify({ command, args }));
+  return ctx.json({}, { status: 204 as ContentfulStatusCode });
 };
