@@ -14,6 +14,7 @@ import { env } from "hono/adapter";
 import { followEvent } from "./lib/events/follow";
 import {
   ChannelFollowEvent,
+  ChatMessageEvent,
   KicksGiftedEvent,
   LivestreamStatusUpdatedEvent,
   NewSubscriptionEvent,
@@ -28,6 +29,7 @@ import {
   renewedSub,
 } from "./lib/events/subscriptions";
 import { kicksGifted } from "./lib/events/kicks";
+import { commandReply } from "./lib/events/chat";
 
 export interface Env {
   readonly DASHBOARD_URL?: string;
@@ -102,6 +104,9 @@ app.post("/webhook", async (c) => {
 
     case "kicks.gifted":
       return await kicksGifted(result.payload as KicksGiftedEvent, db, c);
+
+    case "chat.message.sent":
+      return await commandReply(result.payload as ChatMessageEvent, db, c);
 
     default:
       return c.json(
