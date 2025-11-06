@@ -9,6 +9,7 @@ export const commandReply = async (
   db: DbClient,
   ctx: context
 ) => {
+  console.log(event.content);
   if (!event.content.startsWith("!")) return;
 
   const broadcaster = await db.account.findFirst({
