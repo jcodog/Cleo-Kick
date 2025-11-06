@@ -11,7 +11,7 @@ export const commandReply = async (
 ) => {
   console.log(event.content);
   if (!event.content.startsWith("!"))
-    return ctx.json({}, { status: 204 as ContentfulStatusCode });
+    return ctx.json({ status: 204 as ContentfulStatusCode });
 
   const broadcaster = await db.account.findFirst({
     where: {
@@ -63,5 +63,5 @@ export const commandReply = async (
   }
 
   console.log("[Chat] Unknown command:", JSON.stringify({ command, args }));
-  return ctx.json({}, { status: 204 as ContentfulStatusCode });
+  return ctx.json({ status: 204 as ContentfulStatusCode });
 };
