@@ -7,9 +7,11 @@
     "inspector_port": 9229,
     "port": 3000
   },
+  "placement": {
+    "mode": "smart"
+  },
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
+    "enabled": true
   },
   "d1_databases": [
     {
