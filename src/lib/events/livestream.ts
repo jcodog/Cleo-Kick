@@ -21,6 +21,8 @@ export const livestreamStatusUpdate = async (
     return ctx.json({ recieved: true, message: "Broadcaster not registered" });
   }
 
+  console.log("[Live status] Broadcaster valid - sending message");
+
   const message = `${event.broadcaster.username} is now ${
     event.is_live ? "live" : "offline"
   }.`;
@@ -33,14 +35,16 @@ export const livestreamStatusUpdate = async (
   });
 
   if (sent.sent) {
-    return ctx.json(
-      { recieved: true, message: sent.message },
-      { status: sent.status as ContentfulStatusCode }
-    );
-  } else {
-    return ctx.json(
-      { recieved: true, message: sent.message },
-      { status: sent.status as ContentfulStatusCode }
-    );
-  }
+      console.log("[Live status] Message sent");
+      return ctx.json(
+        { message: sent.message },
+        { status: sent.status as ContentfulStatusCode }
+      );
+    } else {
+      console.log("[Live status] Message not sent")
+      return ctx.json(
+        { message: sent.message },
+        { status: sent.status as ContentfulStatusCode }
+      );
+    }
 };

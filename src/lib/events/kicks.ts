@@ -21,6 +21,8 @@ export const kicksGifted = async (
     return ctx.json({ message: "Broadcaster not registered" }, { status: 404 });
   }
 
+  console.log("[Kicks] Broadcaster valid - sending message");
+
   const giftMessage =
     typeof event.gift.message === "string" ? event.gift.message.trim() : "";
 
@@ -38,14 +40,16 @@ export const kicksGifted = async (
   });
 
   if (sent.sent) {
-    return ctx.json(
-      { message: sent.message },
-      { status: sent.status as ContentfulStatusCode }
-    );
-  } else {
-    return ctx.json(
-      { message: sent.message },
-      { status: sent.status as ContentfulStatusCode }
-    );
-  }
+      console.log("[Kicks] Message sent");
+      return ctx.json(
+        { message: sent.message },
+        { status: sent.status as ContentfulStatusCode }
+      );
+    } else {
+      console.log("[Kicks] Message not sent")
+      return ctx.json(
+        { message: sent.message },
+        { status: sent.status as ContentfulStatusCode }
+      );
+    }
 };

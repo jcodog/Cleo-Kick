@@ -25,6 +25,8 @@ export const newSubscriber = async (
     return ctx.json({ message: "Broadcaster not registered" }, { status: 404 });
   }
 
+  console.log("[Sub new] Broadcaster valid - sending message");
+
   const message = `@${event.subscriber.username} thank you for subscribing to ${event.broadcaster.username}'s channel!`;
   const sent = await sendMessage({
     broadcaster: {
@@ -35,11 +37,13 @@ export const newSubscriber = async (
   });
 
   if (sent.sent) {
+    console.log("[Sub new] Message sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
+    console.log("[Sub new] Message not sent")
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
@@ -64,6 +68,8 @@ export const giftedSubs = async (
     return ctx.json({ message: "Broadcaster not registered" }, { status: 404 });
   }
 
+  console.log("[Sub gift] Broadcaster valid - sending message");
+
   const message = `@${event.gifter.username} thank you for gifting ${event.giftees.length} subs to ${event.broadcaster.username}'s channel!`;
   const sent = await sendMessage({
     broadcaster: {
@@ -74,11 +80,13 @@ export const giftedSubs = async (
   });
 
   if (sent.sent) {
+    console.log("[Sub gift] Message sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
+    console.log("[Sub gift] Message not sent")
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
@@ -103,6 +111,8 @@ export const renewedSub = async (
     return ctx.json({ message: "Broadcaster not registered" }, { status: 404 });
   }
 
+  console.log("[Sub renew] Broadcaster valid - sending message");
+
   const message = `@${event.subscriber.username} thank you for subscribing to ${event.broadcaster.username}'s channel! You have been a subscriber for ${event.duration} months!`;
   const sent = await sendMessage({
     broadcaster: {
@@ -113,11 +123,13 @@ export const renewedSub = async (
   });
 
   if (sent.sent) {
+    console.log("[Sub renew] Message sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
+    console.log("[Sub renew] Message not sent")
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }

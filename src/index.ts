@@ -74,6 +74,8 @@ app.post("/webhook", async (c) => {
   const result = c.get("kickWebhook");
   const db = getDb(env(c).DATABASE_URL ?? "");
 
+  console.log(result.eventType);
+
   switch (result.eventType as KickWebhookEventType) {
     case "channel.followed":
       return await followEvent(result.payload as ChannelFollowEvent, db, c);
