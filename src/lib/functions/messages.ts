@@ -16,7 +16,6 @@ export const sendMessage = async ({
       Authorization: `Bearer ${broadcaster.accessToken}`,
       "Content-Type": "application/json",
       Accept: "*/*",
-      "Content-Length": "118",
     },
     body: JSON.stringify({
       content: message,
