@@ -9,7 +9,7 @@
     "test": "bunx vitest run",
     "test:watch": "bunx vitest",
     "coverage": "bunx vitest run --coverage --reporter=default --reporter=json --outputFile coverage/vitest-report.json",
-    "generate-prisma": "prisma generate --accelerate"
+    "generate-prisma": "prisma generate --no-engine"
   },
   "dependencies": {
     "@jconet-ltd/mailchannels-client": "^1.1.1",
