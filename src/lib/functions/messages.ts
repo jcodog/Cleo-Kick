@@ -10,7 +10,8 @@ export const sendMessage = async ({
   broadcaster: { name: string; accessToken: string };
   message: string;
 }): Promise<{ sent: boolean; message: string; status: number }> => {
-  const res = await fetch("", {
+  const res = await fetch("https://api.kick.com/public/v1/chat", {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${broadcaster.accessToken}`,
       "Content-Type": "application/json",
