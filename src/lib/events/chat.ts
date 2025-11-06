@@ -10,11 +10,15 @@ export const commandReply = async (
   ctx: context
 ) => {
   console.log(event.content);
-  if (!event.content.startsWith("!")) return;
+  if (!event.content.startsWith("!"))
+    return ctx.json({}, { status: 204 as ContentfulStatusCode });
 
   const broadcaster = await db.account.findFirst({
     where: {
       accountId: String(event.broadcaster.user_id),
+    },
+    cacheStrategy: {
+      ttl: 3600,
     },
   });
   if (!broadcaster) {

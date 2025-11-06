@@ -17,6 +17,9 @@ export const newSubscriber = async (
     where: {
       accountId: String(event.broadcaster.user_id),
     },
+    cacheStrategy: {
+      ttl: 3600,
+    },
   });
   if (!broadcaster) {
     console.error(
@@ -43,7 +46,7 @@ export const newSubscriber = async (
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
-    console.log("[Sub new] Message not sent")
+    console.log("[Sub new] Message not sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
@@ -86,7 +89,7 @@ export const giftedSubs = async (
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
-    console.log("[Sub gift] Message not sent")
+    console.log("[Sub gift] Message not sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }
@@ -129,7 +132,7 @@ export const renewedSub = async (
       { status: sent.status as ContentfulStatusCode }
     );
   } else {
-    console.log("[Sub renew] Message not sent")
+    console.log("[Sub renew] Message not sent");
     return ctx.json(
       { message: sent.message },
       { status: sent.status as ContentfulStatusCode }

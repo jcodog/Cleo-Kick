@@ -13,6 +13,9 @@ export const followEvent = async (
     where: {
       accountId: String(event.broadcaster.user_id),
     },
+    cacheStrategy: {
+      ttl: 3600,
+    },
   });
   if (!broadcaster) {
     console.error(

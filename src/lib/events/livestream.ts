@@ -13,6 +13,9 @@ export const livestreamStatusUpdate = async (
     where: {
       accountId: String(event.broadcaster.user_id),
     },
+    cacheStrategy: {
+      ttl: 3600,
+    },
   });
   if (!broadcaster) {
     console.error(
@@ -35,16 +38,16 @@ export const livestreamStatusUpdate = async (
   });
 
   if (sent.sent) {
-      console.log("[Live status] Message sent");
-      return ctx.json(
-        { message: sent.message },
-        { status: sent.status as ContentfulStatusCode }
-      );
-    } else {
-      console.log("[Live status] Message not sent")
-      return ctx.json(
-        { message: sent.message },
-        { status: sent.status as ContentfulStatusCode }
-      );
-    }
+    console.log("[Live status] Message sent");
+    return ctx.json(
+      { message: sent.message },
+      { status: sent.status as ContentfulStatusCode }
+    );
+  } else {
+    console.log("[Live status] Message not sent");
+    return ctx.json(
+      { message: sent.message },
+      { status: sent.status as ContentfulStatusCode }
+    );
+  }
 };

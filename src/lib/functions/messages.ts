@@ -25,6 +25,15 @@ export const sendMessage = async ({
 
   if (!res.ok) {
     const data = (await res.json()) as RESTPostChatMessageResult;
+    console.log(
+      JSON.stringify({
+        messageSending: {
+          sent: false,
+          message: data.message,
+          status: res.status,
+        },
+      })
+    );
     return { sent: false, message: data.message, status: res.status };
   }
 

@@ -13,6 +13,9 @@ export const kicksGifted = async (
     where: {
       accountId: String(event.broadcaster.user_id),
     },
+    cacheStrategy: {
+      ttl: 3600,
+    },
   });
   if (!broadcaster) {
     console.error(
@@ -40,16 +43,16 @@ export const kicksGifted = async (
   });
 
   if (sent.sent) {
-      console.log("[Kicks] Message sent");
-      return ctx.json(
-        { message: sent.message },
-        { status: sent.status as ContentfulStatusCode }
-      );
-    } else {
-      console.log("[Kicks] Message not sent")
-      return ctx.json(
-        { message: sent.message },
-        { status: sent.status as ContentfulStatusCode }
-      );
-    }
+    console.log("[Kicks] Message sent");
+    return ctx.json(
+      { message: sent.message },
+      { status: sent.status as ContentfulStatusCode }
+    );
+  } else {
+    console.log("[Kicks] Message not sent");
+    return ctx.json(
+      { message: sent.message },
+      { status: sent.status as ContentfulStatusCode }
+    );
+  }
 };
