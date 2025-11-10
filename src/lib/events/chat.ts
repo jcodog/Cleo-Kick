@@ -50,10 +50,7 @@ export const commandReply = async (
         { status: sent.status as ContentfulStatusCode }
       );
     } else {
-      console.log(
-        "[Follow] Message not sent",
-        `Status: ${sent.status} - ${sent.message}`
-      );
+      console.log("[Follow] Message not sent");
       return ctx.json(
         { message: sent.message },
         { status: sent.status as ContentfulStatusCode }
