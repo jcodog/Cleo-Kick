@@ -3,25 +3,21 @@ import { DbClient } from "../prisma";
 import { context } from "../..";
 import { sendMessage } from "../functions/messages";
 import { ContentfulStatusCode } from "hono/utils/http-status";
+import type { KickBroadcasterAuth } from "../functions/middleware";
 
 export const commandReply = async (
   event: ChatMessageEvent,
-  db: DbClient,
+  _db: DbClient,
   ctx: context
 ) => {
   console.log(event.content);
   if (!event.content.startsWith("!"))
     return ctx.json({ status: 204 as ContentfulStatusCode });
 
-  const broadcaster = await db.account.findFirst({
-    where: {
-      accountId: String(event.broadcaster.user_id),
-    },
-    cacheStrategy: {
-      ttl: 3600,
-    },
-  });
-  if (!broadcaster) {
+  const broadcasterAuth = ctx.get(
+    "kickBroadcasterAuth"
+  ) as KickBroadcasterAuth | null;
+  if (!broadcasterAuth) {
     console.error(
       `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
     );
@@ -42,7 +38,7 @@ export const commandReply = async (
     const sent = await sendMessage({
       broadcaster: {
         name: event.broadcaster.username!,
-        accessToken: broadcaster.accessToken!,
+        accessToken: broadcasterAuth.accessToken,
       },
       message,
     });

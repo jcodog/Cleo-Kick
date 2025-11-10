@@ -3,7 +3,10 @@ import type {
   KickWebhookEventType,
   KickWebhookValidationResult,
 } from "./lib/functions/validateWebhook";
-import { createKickWebhookValidationMiddleware } from "./lib/functions/middleware";
+import {
+  createKickWebhookValidationMiddleware,
+  type KickBroadcasterAuth,
+} from "./lib/functions/middleware";
 import {
   logErrorToD1,
   type ErrorLogEntry,
@@ -43,6 +46,8 @@ export interface Env {
   readonly MAILCHANNELS_FROM_NAME?: string;
   readonly DATABASE_URL?: string;
   readonly DIRECT_URL?: string;
+  readonly KICK_CLIENT_ID?: string;
+  readonly KICK_CLIENT_SECRET?: string;
 }
 
 let missingErrorDbWarningShown = false;
@@ -51,6 +56,7 @@ type AppEnv = {
   Bindings: Env;
   Variables: {
     kickWebhook: KickWebhookValidationResult;
+    kickBroadcasterAuth: KickBroadcasterAuth | null;
   };
 };
 

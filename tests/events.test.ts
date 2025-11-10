@@ -30,14 +30,35 @@ const mockSendMessage = mocks.sendMessage;
 
 type JsonResponse = { body: unknown; init?: { status?: number } };
 
-function createMockContext() {
+function createMockContext({
+  broadcasterAuth,
+}: {
+  broadcasterAuth?: { accountId: string; accessToken: string } | null;
+} = {}) {
+  const store = new Map<string, unknown>();
+  if (
+    Object.prototype.hasOwnProperty.call({ broadcasterAuth }, "broadcasterAuth")
+  ) {
+    store.set("kickBroadcasterAuth", broadcasterAuth ?? null);
+  }
+
   const json = vi
     .fn<(body: unknown, init?: { status?: number }) => JsonResponse>()
     .mockImplementation((body, init) => ({
       body,
       init,
     }));
-  return { ctx: { json } as unknown as context, json } as const;
+
+  const ctx = {
+    json,
+    get: (key: string) => store.get(key),
+    set: (key: string, value: unknown) => {
+      store.set(key, value);
+      return value;
+    },
+  } as unknown as context;
+
+  return { ctx, json, store } as const;
 }
 
 function createDbMock(broadcaster: unknown) {
@@ -53,7 +74,7 @@ beforeEach(() => {
 describe("followEvent", () => {
   test("returns 404 when broadcaster is not registered", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -81,8 +102,10 @@ describe("followEvent", () => {
   });
 
   test("thanks the follower when a broadcaster is registered", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "123", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -113,8 +136,10 @@ describe("followEvent", () => {
   });
 
   test("propagates chat failure responses", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "123", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -140,7 +165,7 @@ describe("followEvent", () => {
 describe("livestreamStatusUpdate", () => {
   test("returns acknowledgement when broadcaster missing", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -168,8 +193,10 @@ describe("livestreamStatusUpdate", () => {
   });
 
   test("notifies chat when livestream status changes", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "123", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -189,19 +216,18 @@ describe("livestreamStatusUpdate", () => {
       broadcaster: { name: "Streamer", accessToken: "token" },
       message: "Streamer is now live.",
     });
-    expect(json).toHaveBeenCalledWith(
-      { recieved: true, message: "ok" },
-      { status: 200 }
-    );
+    expect(json).toHaveBeenCalledWith({ message: "ok" }, { status: 200 });
     expect(response).toEqual({
-      body: { recieved: true, message: "ok" },
+      body: { message: "ok" },
       init: { status: 200 },
     });
   });
 
   test("surfaces livestream send failures", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "123", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -217,17 +243,16 @@ describe("livestreamStatusUpdate", () => {
 
     await livestreamStatusUpdate(event, db, ctx);
 
-    expect(json).toHaveBeenCalledWith(
-      { recieved: true, message: "offline" },
-      { status: 503 }
-    );
+    expect(json).toHaveBeenCalledWith({ message: "offline" }, { status: 503 });
   });
 });
 
 describe("subscription events", () => {
   test("newSubscriber thanks the subscriber", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -252,7 +277,7 @@ describe("subscription events", () => {
 
   test("newSubscriber returns 404 when broadcaster missing", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -273,8 +298,10 @@ describe("subscription events", () => {
   });
 
   test("newSubscriber returns failed send status", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -294,8 +321,10 @@ describe("subscription events", () => {
   });
 
   test("giftedSubs handles failed sends with same response", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -323,8 +352,10 @@ describe("subscription events", () => {
   });
 
   test("giftedSubs acknowledges successful gifts", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -349,7 +380,7 @@ describe("subscription events", () => {
 
   test("giftedSubs returns 404 when broadcaster missing", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -371,8 +402,10 @@ describe("subscription events", () => {
   });
 
   test("renewedSub acknowledges renewal with duration", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -399,7 +432,7 @@ describe("subscription events", () => {
 
   test("renewedSub returns 404 when broadcaster missing", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -421,8 +454,10 @@ describe("subscription events", () => {
   });
 
   test("renewedSub propagates failed send", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -445,8 +480,10 @@ describe("subscription events", () => {
 
 describe("kicksGifted", () => {
   test("includes thank-you message with gift message when present", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -470,8 +507,10 @@ describe("kicksGifted", () => {
   });
 
   test("omits gift message when message text is empty", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -493,8 +532,10 @@ describe("kicksGifted", () => {
   });
 
   test("omits gift message when message is missing", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
@@ -517,7 +558,7 @@ describe("kicksGifted", () => {
 
   test("returns 404 when broadcaster missing", async () => {
     const { db } = createDbMock(null);
-    const { ctx, json } = createMockContext();
+    const { ctx, json } = createMockContext({ broadcasterAuth: null });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const event = {
@@ -539,8 +580,10 @@ describe("kicksGifted", () => {
   });
 
   test("propagates failed kick gift messages", async () => {
-    const { db } = createDbMock({ accessToken: "token" });
-    const { ctx, json } = createMockContext();
+    const { db } = createDbMock({});
+    const { ctx, json } = createMockContext({
+      broadcasterAuth: { accountId: "1", accessToken: "token" },
+    });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,

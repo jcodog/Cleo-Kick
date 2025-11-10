@@ -28,15 +28,18 @@ describe("sendMessage", () => {
       message: "hello world",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("", {
-      headers: {
-        Authorization: "Bearer token",
-        "Content-Type": "application/json",
-        Accept: "*/*",
-        "Content-Length": "118",
-      },
-      body: JSON.stringify({ content: "hello world", type: "bot" }),
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.kick.com/public/v1/chat",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token",
+          "Content-Type": "application/json",
+          Accept: "*/*",
+        },
+        body: JSON.stringify({ content: "hello world", type: "bot" }),
+      }
+    );
 
     expect(result).toEqual({ sent: true, message: "queued", status: 200 });
   });

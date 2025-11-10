@@ -7,21 +7,17 @@ import { context } from "../..";
 import { DbClient } from "../prisma";
 import { sendMessage } from "../functions/messages";
 import { ContentfulStatusCode } from "hono/utils/http-status";
+import type { KickBroadcasterAuth } from "../functions/middleware";
 
 export const newSubscriber = async (
   event: NewSubscriptionEvent,
-  db: DbClient,
+  _db: DbClient,
   ctx: context
 ) => {
-  const broadcaster = await db.account.findFirst({
-    where: {
-      accountId: String(event.broadcaster.user_id),
-    },
-    cacheStrategy: {
-      ttl: 3600,
-    },
-  });
-  if (!broadcaster) {
+  const broadcasterAuth = ctx.get(
+    "kickBroadcasterAuth"
+  ) as KickBroadcasterAuth | null;
+  if (!broadcasterAuth) {
     console.error(
       `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
     );
@@ -34,7 +30,7 @@ export const newSubscriber = async (
   const sent = await sendMessage({
     broadcaster: {
       name: event.broadcaster.username!,
-      accessToken: broadcaster.accessToken!,
+      accessToken: broadcasterAuth.accessToken,
     },
     message,
   });
@@ -56,15 +52,13 @@ export const newSubscriber = async (
 
 export const giftedSubs = async (
   event: SubscriptionGiftEvent,
-  db: DbClient,
+  _db: DbClient,
   ctx: context
 ) => {
-  const broadcaster = await db.account.findFirst({
-    where: {
-      accountId: String(event.broadcaster.user_id),
-    },
-  });
-  if (!broadcaster) {
+  const broadcasterAuth = ctx.get(
+    "kickBroadcasterAuth"
+  ) as KickBroadcasterAuth | null;
+  if (!broadcasterAuth) {
     console.error(
       `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
     );
@@ -77,7 +71,7 @@ export const giftedSubs = async (
   const sent = await sendMessage({
     broadcaster: {
       name: event.broadcaster.username!,
-      accessToken: broadcaster.accessToken!,
+      accessToken: broadcasterAuth.accessToken,
     },
     message,
   });
@@ -99,15 +93,13 @@ export const giftedSubs = async (
 
 export const renewedSub = async (
   event: SubscriptionRenewalEvent,
-  db: DbClient,
+  _db: DbClient,
   ctx: context
 ) => {
-  const broadcaster = await db.account.findFirst({
-    where: {
-      accountId: String(event.broadcaster.user_id),
-    },
-  });
-  if (!broadcaster) {
+  const broadcasterAuth = ctx.get(
+    "kickBroadcasterAuth"
+  ) as KickBroadcasterAuth | null;
+  if (!broadcasterAuth) {
     console.error(
       `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
     );
@@ -120,7 +112,7 @@ export const renewedSub = async (
   const sent = await sendMessage({
     broadcaster: {
       name: event.broadcaster.username!,
-      accessToken: broadcaster.accessToken!,
+      accessToken: broadcasterAuth.accessToken,
     },
     message,
   });
