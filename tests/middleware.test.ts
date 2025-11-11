@@ -360,6 +360,85 @@ describe("createKickWebhookValidationMiddleware", () => {
     });
   });
 
+  test("logs a warning when cache invalidation is rate limited", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    const now = Date.now();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-rate-limited",
+      accountId: "654",
+      accessToken: "expired-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(now - 10_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    mockDb.$accelerate.invalidate.mockRejectedValueOnce({
+      code: "P6003",
+      message: "rate limit",
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: "refreshed-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-cache-rate-limited",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "654" },
+      },
+    });
+
+    const { app } = buildApp({ bindings });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-rate-limited" },
+      data: expect.objectContaining({ accessToken: "refreshed-token" }),
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account_654"],
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Accelerate cache invalidation rate limited",
+      {
+        broadcasterAccountId: "654",
+        cacheTag: "account_654",
+      }
+    );
+
+    warnSpy.mockRestore();
+  });
+
   test("logs a warning when cache invalidation fails", async () => {
     mockGetDb.mockReturnValue(mockDb);
     const now = Date.now();
@@ -438,6 +517,7 @@ describe("createKickWebhookValidationMiddleware", () => {
     });
     expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
       broadcasterAccountId: "654",
+      cacheTag: "account_654",
       error: "accelerate down",
     });
 
@@ -521,6 +601,7 @@ describe("createKickWebhookValidationMiddleware", () => {
     });
     expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
       broadcasterAccountId: "655",
+      cacheTag: "account_655",
       error: "accelerate offline",
     });
 

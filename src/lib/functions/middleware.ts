@@ -7,13 +7,14 @@ import {
 } from "./validateWebhook";
 import type { ErrorLogEntry } from "./errors/logError";
 import type { Env } from "../config/env";
-import { getDb } from "../prisma";
+import { getDb, type DbClient } from "../prisma";
 import {
   OAuth2AuthorizationUrl,
   Routes,
   type RESTPostOAuth2RefreshTokenResult,
 } from "kick-api-types/rest";
 import type { AppVariables } from "../app/types";
+import { Prisma } from "../../prisma/edge";
 
 export interface KickBroadcasterAuth {
   accountId: string;
@@ -36,6 +37,54 @@ function getAccountCacheTag(accountId: string): string {
   const trimmed = sanitized.slice(0, maxIdLength);
   const normalized = trimmed || "_";
   return `${ACCOUNT_CACHE_TAG_PREFIX}_${normalized}`;
+}
+
+async function invalidateAccountCache(
+  db: DbClient,
+  accountId: string,
+  steps?: StepLogger
+): Promise<void> {
+  const cacheTag = getAccountCacheTag(accountId);
+  if (!db.$accelerate?.invalidate) {
+    steps?.note("Accelerate invalidate unavailable", { cacheTag });
+    return;
+  }
+
+  try {
+    await db.$accelerate.invalidate({ tags: [cacheTag] });
+    steps?.note("Invalidated account cache", {
+      broadcasterAccountId: accountId,
+      cacheTag,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const maybeCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
+
+    if (
+      (error instanceof Prisma.PrismaClientKnownRequestError ||
+        maybeCode === "P6003") &&
+      maybeCode === "P6003"
+    ) {
+      steps?.note("Accelerate invalidate rate limited", {
+        broadcasterAccountId: accountId,
+        cacheTag,
+      });
+      console.warn("Accelerate cache invalidation rate limited", {
+        broadcasterAccountId: accountId,
+        cacheTag,
+      });
+      return;
+    }
+
+    console.warn("Failed to invalidate account cache", {
+      broadcasterAccountId: accountId,
+      cacheTag,
+      error: errorMessage,
+    });
+  }
 }
 
 type StepHandle = {
@@ -377,24 +426,7 @@ async function resolveBroadcasterAuth<
     account.refreshToken = refreshed.refresh_token ?? account.refreshToken;
     account.accessTokenExpiresAt = refreshedExpiresAt;
 
-    const accountCacheTag = getAccountCacheTag(account.accountId);
-    if (db.$accelerate?.invalidate) {
-      try {
-        await db.$accelerate.invalidate({ tags: [accountCacheTag] });
-        steps?.note("Invalidated account cache", {
-          broadcasterAccountId,
-          cacheTag: accountCacheTag,
-        });
-      } catch (invalidateError) {
-        console.warn("Failed to invalidate account cache", {
-          broadcasterAccountId,
-          error:
-            invalidateError instanceof Error
-              ? invalidateError.message
-              : String(invalidateError),
-        });
-      }
-    }
+    await invalidateAccountCache(db, account.accountId, steps);
 
     if (steps && refreshStep) {
       steps.success(refreshStep, {
