@@ -32,9 +32,6 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Generate prisma client
-        run: bun run generate-prisma
-
       - name: Generate coverage report
         run: bun run coverage
 
