@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => {
       findFirst: vi.fn(),
       update: vi.fn(),
     },
+    $accelerate: {
+      invalidate: vi.fn(),
+      invalidateAll: vi.fn(),
+    },
   };
   const getDb = vi.fn(() => mockDb);
 
@@ -66,6 +70,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   mockDb.account.findFirst.mockReset();
   mockDb.account.update.mockReset();
+  mockDb.$accelerate.invalidate.mockReset();
+  mockDb.$accelerate.invalidateAll.mockReset();
   mockGetDb.mockReset();
   mockValidateKickWebhook.mockReset();
 });
@@ -254,8 +260,14 @@ describe("createKickWebhookValidationMiddleware", () => {
         accessTokenExpiresAt: true,
         refreshTokenExpiresAt: true,
       },
+      cacheStrategy: expect.objectContaining({
+        ttl: expect.any(Number),
+        swr: expect.any(Number),
+        tags: ["account:123"],
+      }),
     });
     expect(mockDb.account.update).not.toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -343,6 +355,257 @@ describe("createKickWebhookValidationMiddleware", () => {
         refreshToken: newRefresh,
       }),
     });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account:456"],
+    });
+  });
+
+  test("logs a warning when cache invalidation fails", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    const now = Date.now();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-3",
+      accountId: "654",
+      accessToken: "expired-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(now - 10_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const newToken = "refreshed-token";
+    mockDb.$accelerate.invalidate.mockRejectedValueOnce(
+      new Error("accelerate down")
+    );
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: newToken,
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-cache",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "654" },
+      },
+    });
+
+    const { app } = buildApp({ bindings });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    const json = (await response.json()) as {
+      eventType: string;
+      broadcasterAuth: KickBroadcasterAuth | null;
+    };
+
+    expect(response.status).toBe(200);
+    expect(json.broadcasterAuth).toEqual({
+      accountId: "654",
+      accessToken: newToken,
+    });
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-3" },
+      data: expect.objectContaining({ accessToken: newToken }),
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account:654"],
+    });
+    expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
+      broadcasterAccountId: "654",
+      error: "accelerate down",
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  test("logs a warning when cache invalidation rejects with a non-error value", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    const now = Date.now();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-3-non-error",
+      accountId: "655",
+      accessToken: "expired-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(now - 5_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const newToken = "refreshed-non-error";
+    mockDb.$accelerate.invalidate.mockRejectedValueOnce("accelerate offline");
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: newToken,
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-cache-non-error",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "655" },
+      },
+    });
+
+    const { app } = buildApp({ bindings });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    const json = (await response.json()) as {
+      eventType: string;
+      broadcasterAuth: KickBroadcasterAuth | null;
+    };
+
+    expect(response.status).toBe(200);
+    expect(json.broadcasterAuth).toEqual({
+      accountId: "655",
+      accessToken: newToken,
+    });
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-3-non-error" },
+      data: expect.objectContaining({ accessToken: newToken }),
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account:655"],
+    });
+    expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
+      broadcasterAccountId: "655",
+      error: "accelerate offline",
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  test("skips cache invalidation when Accelerate invalidate is unavailable", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    const now = Date.now();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-no-invalidate",
+      accountId: "555",
+      accessToken: "old",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(now - 1_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const originalInvalidate = mockDb.$accelerate.invalidate;
+    (mockDb.$accelerate as any).invalidate = undefined;
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: "newer",
+        refresh_token: "refresh-token",
+        expires_in: 7200,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-noinvalidate",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "555" },
+      },
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const { app } = buildApp({ bindings });
+
+    let response: Response | null = null;
+    try {
+      response = await app.request(
+        "/",
+        { method: "POST", body: "{}" },
+        bindings
+      );
+    } finally {
+      (mockDb.$accelerate as any).invalidate = originalInvalidate;
+    }
+
+    expect(response).not.toBeNull();
+
+    const json = (await response!.json()) as {
+      eventType: string;
+      broadcasterAuth: KickBroadcasterAuth | null;
+    };
+
+    expect(response!.status).toBe(200);
+    expect(json.broadcasterAuth).toEqual({
+      accountId: "555",
+      accessToken: "newer",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-no-invalidate" },
+      data: expect.objectContaining({ accessToken: "newer" }),
+    });
+    expect(originalInvalidate).not.toHaveBeenCalled();
   });
 
   test("returns null broadcaster auth when account is not registered", async () => {
@@ -383,6 +646,7 @@ describe("createKickWebhookValidationMiddleware", () => {
     };
     expect(json.broadcasterAuth).toBeNull();
     expect(mockDb.account.findFirst).toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
   });
 
   test("returns 500 when database binding is missing", async () => {
@@ -423,6 +687,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       })
     );
     expect(mockDb.account.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -479,6 +744,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       })
     );
     expect(mockDb.account.update).not.toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -536,6 +802,7 @@ describe("createKickWebhookValidationMiddleware", () => {
     );
     expect(mockDb.account.update).not.toHaveBeenCalled();
     expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -601,6 +868,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       })
     );
     expect(fetchSpy).toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -667,6 +935,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       })
     );
     expect(fetchSpy).toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -755,6 +1024,75 @@ describe("resolveBroadcasterAuth (internal)", () => {
       data: expect.objectContaining({
         refreshToken: "persisted-refresh",
       }),
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account:777"],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("refreshes token even when Accelerate invalidate is unavailable", async () => {
+    const dbWithoutAccelerate = {
+      account: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "acct-lite",
+          accountId: "888",
+          accessToken: null,
+          refreshToken: "refresh-token",
+          accessTokenExpiresAt: null,
+          refreshTokenExpiresAt: null,
+        }),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+
+    mockGetDb.mockReturnValueOnce(dbWithoutAccelerate as any);
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: "fresh-token",
+        refresh_token: "refresh-token",
+        expires_in: 1800,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "888" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-lite",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(auth).toEqual({
+      accountId: "888",
+      accessToken: "fresh-token",
+    });
+    expect(dbWithoutAccelerate.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-lite" },
+      data: expect.objectContaining({ accessToken: "fresh-token" }),
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });

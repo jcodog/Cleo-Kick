@@ -22,6 +22,12 @@ export interface KickBroadcasterAuth {
 
 const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 const LOG_PREFIX = "[kick-webhook-middleware]";
+const ACCOUNT_CACHE_TTL_SECONDS = 60;
+const ACCOUNT_CACHE_SWR_SECONDS = 300;
+
+function getAccountCacheTag(accountId: string): string {
+  return `account:${accountId}`;
+}
 
 type StepHandle = {
   id: number;
@@ -277,6 +283,11 @@ async function resolveBroadcasterAuth<
       accessTokenExpiresAt: true,
       refreshTokenExpiresAt: true,
     },
+    cacheStrategy: {
+      ttl: ACCOUNT_CACHE_TTL_SECONDS,
+      swr: ACCOUNT_CACHE_SWR_SECONDS,
+      tags: [getAccountCacheTag(broadcasterAccountId)],
+    },
   });
 
   console.log("[account-lookup-result]", JSON.stringify(account));
@@ -356,6 +367,26 @@ async function resolveBroadcasterAuth<
     account.accessToken = refreshed.access_token;
     account.refreshToken = refreshed.refresh_token ?? account.refreshToken;
     account.accessTokenExpiresAt = refreshedExpiresAt;
+
+    const accountCacheTag = getAccountCacheTag(account.accountId);
+    if (db.$accelerate?.invalidate) {
+      try {
+        await db.$accelerate.invalidate({ tags: [accountCacheTag] });
+        steps?.note("Invalidated account cache", {
+          broadcasterAccountId,
+          cacheTag: accountCacheTag,
+        });
+      } catch (invalidateError) {
+        console.warn("Failed to invalidate account cache", {
+          broadcasterAccountId,
+          error:
+            invalidateError instanceof Error
+              ? invalidateError.message
+              : String(invalidateError),
+        });
+      }
+    }
+
     if (steps && refreshStep) {
       steps.success(refreshStep, {
         expiresAt: refreshedExpiresAt,
