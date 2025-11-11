@@ -263,7 +263,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       cacheStrategy: expect.objectContaining({
         ttl: expect.any(Number),
         swr: expect.any(Number),
-        tags: ["account:123"],
+        tags: ["account_123"],
       }),
     });
     expect(mockDb.account.update).not.toHaveBeenCalled();
@@ -356,7 +356,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       }),
     });
     expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
-      tags: ["account:456"],
+      tags: ["account_456"],
     });
   });
 
@@ -434,7 +434,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       data: expect.objectContaining({ accessToken: newToken }),
     });
     expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
-      tags: ["account:654"],
+      tags: ["account_654"],
     });
     expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
       broadcasterAccountId: "654",
@@ -517,7 +517,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       data: expect.objectContaining({ accessToken: newToken }),
     });
     expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
-      tags: ["account:655"],
+      tags: ["account_655"],
     });
     expect(warnSpy).toHaveBeenCalledWith("Failed to invalidate account cache", {
       broadcasterAccountId: "655",
@@ -966,6 +966,16 @@ describe("resolveBroadcasterAuth (internal)", () => {
     expect(mockGetDb).not.toHaveBeenCalled();
   });
 
+  test("formats account cache tag with sanitized characters", () => {
+    expect(__test.getAccountCacheTag("abc-123:XYZ")).toBe(
+      "account_abc_123_XYZ"
+    );
+  });
+
+  test("formats account cache tag when id is empty", () => {
+    expect(__test.getAccountCacheTag("")).toBe("account__");
+  });
+
   test("reuses stored refresh token when the refresh response omits one", async () => {
     mockGetDb.mockReturnValue(mockDb);
     mockDb.account.findFirst.mockResolvedValueOnce({
@@ -1026,7 +1036,7 @@ describe("resolveBroadcasterAuth (internal)", () => {
       }),
     });
     expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
-      tags: ["account:777"],
+      tags: ["account_777"],
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });

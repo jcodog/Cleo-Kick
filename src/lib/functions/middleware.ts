@@ -24,9 +24,18 @@ const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 const LOG_PREFIX = "[kick-webhook-middleware]";
 const ACCOUNT_CACHE_TTL_SECONDS = 60;
 const ACCOUNT_CACHE_SWR_SECONDS = 300;
+const ACCOUNT_CACHE_TAG_PREFIX = "account";
+const ACCOUNT_CACHE_TAG_MAX_LENGTH = 64;
 
 function getAccountCacheTag(accountId: string): string {
-  return `account:${accountId}`;
+  const sanitized = accountId.replace(/[^0-9A-Za-z_]/g, "_");
+  const maxIdLength = Math.max(
+    1,
+    ACCOUNT_CACHE_TAG_MAX_LENGTH - (ACCOUNT_CACHE_TAG_PREFIX.length + 1)
+  );
+  const trimmed = sanitized.slice(0, maxIdLength);
+  const normalized = trimmed || "_";
+  return `${ACCOUNT_CACHE_TAG_PREFIX}_${normalized}`;
 }
 
 type StepHandle = {
@@ -497,4 +506,5 @@ export const __test = {
   resolveBroadcasterAuth,
   refreshAccessToken,
   extractBroadcasterAccountId,
+  getAccountCacheTag,
 } as const;
