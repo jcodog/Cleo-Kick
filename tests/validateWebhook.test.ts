@@ -394,8 +394,8 @@ describe("validateKickWebhook", () => {
     const pem =
       "-----BEGIN PUBLIC KEY-----\nQUJDRA==\n-----END PUBLIC KEY-----";
 
-    const fetcher = vi.fn<Parameters<typeof fetch>, Promise<Response>>(
-      async () =>
+    const fetcher = vi.fn<typeof fetch>(
+      async (_input, _init) =>
         new Response(JSON.stringify({ data: { public_key: pem } }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -439,7 +439,7 @@ describe("validateKickWebhook", () => {
     const pem =
       "-----BEGIN PUBLIC KEY-----\nAAAAAA==\n-----END PUBLIC KEY-----";
 
-    const fetcher = vi.fn();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response());
     const { importKeySpy, verifySpy } = mockCrypto(true);
 
     const request = new Request("https://example.com", {
@@ -472,13 +472,15 @@ describe("validateKickWebhook", () => {
       "../src/lib/functions/validateWebhook"
     );
 
-    const fetcher = vi.fn<Parameters<typeof fetch>, Promise<Response>>(
-      async () =>
-        new Response(JSON.stringify({ data: { public_key: "invalid-key" } }), {
+    const fetcher = vi.fn<typeof fetch>(async (_input, _init) => {
+      return new Response(
+        JSON.stringify({ data: { public_key: "invalid-key" } }),
+        {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        })
-    );
+        }
+      );
+    });
 
     const { importKeySpy, verifySpy } = mockCrypto(true);
 
@@ -512,9 +514,9 @@ describe("validateKickWebhook", () => {
       "../src/lib/functions/validateWebhook"
     );
 
-    const fetcher = vi.fn<Parameters<typeof fetch>, Promise<Response>>(
-      async () => new Response("Unavailable", { status: 503 })
-    );
+    const fetcher = vi.fn<typeof fetch>(async (_input, _init) => {
+      return new Response("Unavailable", { status: 503 });
+    });
 
     const { importKeySpy, verifySpy } = mockCrypto(true);
 

@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Hono } from "hono";
 import type { KickWebhookValidationResult } from "../src/lib/functions/validateWebhook";
-import { createKickWebhookValidationMiddleware } from "../src/lib/functions/middleware";
+import * as middleware from "../src/lib/functions/middleware";
 import type { KickBroadcasterAuth } from "../src/lib/functions/middleware";
+
+const { createKickWebhookValidationMiddleware, formatStepMeta, __test } =
+  middleware;
 
 const mocks = vi.hoisted(() => {
   const validateWebhook = vi.fn();
@@ -313,7 +316,10 @@ describe("createKickWebhookValidationMiddleware", () => {
       bindings
     );
 
-    const json = await response.json();
+    const json = (await response.json()) as {
+      eventType: string;
+      broadcasterAuth: KickBroadcasterAuth | null;
+    };
     expect(json.eventType).toBe("channel.followed");
     expect(json.broadcasterAuth).toEqual({
       accountId: "456",
@@ -337,5 +343,480 @@ describe("createKickWebhookValidationMiddleware", () => {
         refreshToken: newRefresh,
       }),
     });
+  });
+
+  test("returns null broadcaster auth when account is not registered", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce(null);
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-4",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster_user_id: "789",
+      },
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+    } satisfies TestEnv["Bindings"];
+
+    const { app } = buildApp({ bindings });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      eventType?: string;
+      broadcasterAuth: KickBroadcasterAuth | null;
+    };
+    expect(json.broadcasterAuth).toBeNull();
+    expect(mockDb.account.findFirst).toHaveBeenCalled();
+  });
+
+  test("returns 500 when database binding is missing", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-db",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "999" },
+      },
+    });
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { app } = buildApp({ recordError });
+    const bindings = {} satisfies TestEnv["Bindings"];
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Internal Server Error" });
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: "Missing DATABASE_URL binding",
+      })
+    );
+    expect(mockDb.account.findFirst).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  test("returns 500 when broadcaster account is missing a refresh token", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-3",
+      accountId: "234",
+      accessToken: null,
+      refreshToken: null,
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-5",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "234" },
+      },
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { app } = buildApp({ bindings, recordError });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Internal Server Error" });
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: expect.stringContaining("missing a refresh token"),
+      })
+    );
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  test("returns 500 when Kick OAuth credentials are missing", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-4",
+      accountId: "345",
+      accessToken: null,
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-6",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "345" },
+      },
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+    } satisfies TestEnv["Bindings"];
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { app } = buildApp({ bindings, recordError });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Internal Server Error" });
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "Missing Kick OAuth client credentials"
+        ),
+      })
+    );
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    errorSpy.mockRestore();
+  });
+
+  test("returns 500 when refreshing the access token fails", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-5",
+      accountId: "456",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 10_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-7",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "456" },
+      },
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: async () => {
+        throw new Error("unreadable");
+      },
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { app } = buildApp({ bindings, recordError });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Internal Server Error" });
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: expect.stringContaining("Failed to refresh Kick access token"),
+      })
+    );
+    expect(fetchSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  test("returns 500 when refresh response omits an access token", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-6",
+      accountId: "567",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 10_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-8",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "567" },
+      },
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        refresh_token: "new-refresh",
+        expires_in: 3600,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { app } = buildApp({ bindings, recordError });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Internal Server Error" });
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: "Kick refresh response did not include an access_token",
+      })
+    );
+    expect(fetchSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+});
+
+describe("resolveBroadcasterAuth (internal)", () => {
+  test("returns null when broadcaster id is missing without a step logger", async () => {
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-1",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: {} } as any,
+      result
+    );
+
+    expect(auth).toBeNull();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  test("reuses stored refresh token when the refresh response omits one", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-internal",
+      accountId: "777",
+      accessToken: null,
+      refreshToken: "persisted-refresh",
+      accessTokenExpiresAt: undefined,
+      refreshTokenExpiresAt: null,
+    });
+    mockDb.account.update.mockResolvedValueOnce(undefined);
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: "refreshed-token",
+        expires_in: 600,
+        token_type: "bearer",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "777" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-2",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(auth).toEqual({
+      accountId: "777",
+      accessToken: "refreshed-token",
+    });
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-internal" },
+      data: expect.objectContaining({
+        refreshToken: "persisted-refresh",
+      }),
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("extracts broadcaster id from fallback payload shape", () => {
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster_user_id: 91234,
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-3",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    expect(__test.extractBroadcasterAccountId(result)).toBe("91234");
+  });
+
+  test("returns null when fallback broadcaster id is invalid", () => {
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster_user_id: "   ",
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-4",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    expect(__test.extractBroadcasterAccountId(result)).toBeNull();
+  });
+});
+
+describe("formatStepMeta", () => {
+  test("omits output when meta is empty or undefined", () => {
+    expect(formatStepMeta()).toBe("");
+    expect(formatStepMeta({ skip: undefined })).toBe("");
+  });
+
+  test("formats supported value types", () => {
+    const stamp = new Date("2024-01-01T00:00:00.000Z");
+    const formatted = formatStepMeta({
+      nothing: null,
+      text: "value",
+      count: 5,
+      flag: false,
+      stamp,
+      extra: { nested: true },
+    });
+
+    expect(formatted).toBe(
+      ` nothing=null text="value" count=5 flag=false stamp="${stamp.toISOString()}" extra={"nested":true}`
+    );
   });
 });

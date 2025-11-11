@@ -1,7 +1,11 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { notifyDeveloperOfError } from "./notifyDeveloper";
-import { Env } from "../../..";
+import type { Env } from "../../config/env";
 
+/**
+ * Structured error details that can be persisted and surfaced to the
+ * development team.
+ */
 interface ErrorLogEntry {
   message: string;
   status?: number | ContentfulStatusCode;
@@ -10,6 +14,10 @@ interface ErrorLogEntry {
 
 let schemaInitialised = false;
 
+/**
+ * Stores an error entry in the D1 database, lazily initialising the schema on
+ * first use and trimming oversized context payloads.
+ */
 export async function logErrorToD1(
   d1: D1Database,
   entry: ErrorLogEntry
@@ -45,6 +53,10 @@ export async function logErrorToD1(
 
 let missingErrorDbWarningShown = false;
 
+/**
+ * Persists the error log when possible and dispatches a MailChannels
+ * notification to the developer inbox, tolerating downstream failures.
+ */
 export async function recordError(
   env: Env,
   entry: ErrorLogEntry

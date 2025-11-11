@@ -1,14 +1,18 @@
 import { KicksGiftedEvent } from "kick-api-types/payloads";
 import { DbClient } from "../prisma";
-import { context } from "../..";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import { sendMessage } from "../functions/messages";
 import type { KickBroadcasterAuth } from "../functions/middleware";
+import type { WebhookContext } from "../app/types";
 
+/**
+ * Announces Kick gifts in chat, including optional custom messages from the
+ * sender.
+ */
 export const kicksGifted = async (
   event: KicksGiftedEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"

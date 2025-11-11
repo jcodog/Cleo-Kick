@@ -1,7 +1,10 @@
 import { PrismaClient } from "../prisma/edge";
 import { withAccelerate } from "@prisma/extension-accelerate";
 
-// Helper to instantiate a PrismaClient extended with accelerate
+/**
+ * Instantiates a Prisma client that uses the Accelerate extension for
+ * improved latency when running on the edge runtime.
+ */
 function createDbClient(url: string) {
   return new PrismaClient({ datasourceUrl: url }).$extends(withAccelerate());
 }
@@ -12,6 +15,10 @@ declare global {
   var prismaClients: Record<string, DbClient> | undefined;
 }
 
+/**
+ * Returns a cached Prisma client for the given database URL, avoiding multiple
+ * instances within the worker execution context.
+ */
 export const getDb = (DATABASE_URL: string): DbClient => {
   if (!globalThis.prismaClients) {
     globalThis.prismaClients = {};

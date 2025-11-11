@@ -3,8 +3,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Env } from "../src/index";
 
 const mockValidateKickWebhook = vi.fn();
-const mockLogErrorToD1 = vi.fn();
-const mockNotifyDeveloperOfError = vi.fn();
+const mockRecordError = vi.fn();
 const mockGetDb = vi.fn();
 const mockFollowEvent = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ received: true }, { status: 200 })
@@ -22,6 +21,9 @@ const mockRenewedSub = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ message: "ok" }, { status: 200 })
 );
 const mockKicksGifted = vi.fn(async (_event, _db, ctx) =>
+  ctx.json({ message: "ok" }, { status: 200 })
+);
+const mockCommandReply = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ message: "ok" }, { status: 200 })
 );
 class MockKickWebhookError extends Error {
@@ -48,48 +50,11 @@ vi.mock("../src/lib/functions/validateWebhook", () => ({
   KickWebhookSignatureError: MockKickWebhookSignatureError,
 }));
 
-vi.mock("../src/lib/functions/errors/logError", () => ({
-  __esModule: true,
-  logErrorToD1: mockLogErrorToD1,
-}));
-
-vi.mock("../src/lib/functions/errors/notifyDeveloper", () => ({
-  __esModule: true,
-  notifyDeveloperOfError: mockNotifyDeveloperOfError,
-}));
-
-vi.mock("../src/lib/prisma", () => ({
-  __esModule: true,
-  getDb: mockGetDb,
-}));
-
-vi.mock("../src/lib/events/follow", () => ({
-  __esModule: true,
-  followEvent: mockFollowEvent,
-}));
-
-vi.mock("../src/lib/events/livestream", () => ({
-  __esModule: true,
-  livestreamStatusUpdate: mockLivestreamStatusUpdate,
-}));
-
-vi.mock("../src/lib/events/subscriptions", () => ({
-  __esModule: true,
-  newSubscriber: mockNewSubscriber,
-  giftedSubs: mockGiftedSubs,
-  renewedSub: mockRenewedSub,
-}));
-
-vi.mock("../src/lib/events/kicks", () => ({
-  __esModule: true,
-  kicksGifted: mockKicksGifted,
-}));
-
 async function loadApp() {
   vi.resetModules();
   mockValidateKickWebhook.mockReset();
-  mockLogErrorToD1.mockReset();
-  mockNotifyDeveloperOfError.mockReset();
+  mockRecordError.mockReset();
+  mockRecordError.mockResolvedValue(undefined);
   mockGetDb.mockReset();
   mockGetDb.mockReturnValue({});
   mockFollowEvent.mockReset();
@@ -98,6 +63,7 @@ async function loadApp() {
   mockGiftedSubs.mockReset();
   mockRenewedSub.mockReset();
   mockKicksGifted.mockReset();
+  mockCommandReply.mockReset();
   mockFollowEvent.mockImplementation(async (_event, _db, ctx) =>
     ctx.json({ received: true }, { status: 200 })
   );
@@ -116,7 +82,27 @@ async function loadApp() {
   mockKicksGifted.mockImplementation(async (_event, _db, ctx) =>
     ctx.json({ message: "ok" }, { status: 200 })
   );
-  return (await import("../src/index")).default;
+  mockCommandReply.mockImplementation(async (_event, _db, ctx) =>
+    ctx.json({ message: "ok" }, { status: 200 })
+  );
+
+  const { createApp } = await import("../src/lib/app/createApp");
+
+  return createApp({
+    webhook: {
+      recordError: mockRecordError,
+      getDb: mockGetDb,
+      handlers: {
+        followEvent: mockFollowEvent,
+        livestreamStatusUpdate: mockLivestreamStatusUpdate,
+        newSubscriber: mockNewSubscriber,
+        giftedSubs: mockGiftedSubs,
+        renewedSub: mockRenewedSub,
+        kicksGifted: mockKicksGifted,
+        commandReply: mockCommandReply,
+      },
+    },
+  });
 }
 
 afterEach(() => {
@@ -170,8 +156,7 @@ describe("index routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ received: true });
     expect(mockValidateKickWebhook).toHaveBeenCalledTimes(1);
-    expect(mockLogErrorToD1).not.toHaveBeenCalled();
-    expect(mockNotifyDeveloperOfError).not.toHaveBeenCalled();
+    expect(mockRecordError).not.toHaveBeenCalled();
   });
 
   test("POST /webhook handles livestream status updates", async () => {
@@ -269,6 +254,25 @@ describe("index routes", () => {
     expect(mockKicksGifted).toHaveBeenCalledTimes(1);
   });
 
+  test("POST /webhook routes chat messages", async () => {
+    const app = await loadApp();
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "chat.message.sent",
+      payload: { eventType: "chat.message.sent" },
+    });
+
+    const response = await app.request(
+      "/webhook",
+      { method: "POST", body: "{}" },
+      {} as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCommandReply).toHaveBeenCalledTimes(1);
+  });
+
   test("POST /webhook returns 422 for unknown event types", async () => {
     const app = await loadApp();
 
@@ -293,7 +297,6 @@ describe("index routes", () => {
     const { KickWebhookSignatureError } = await import(
       "../src/lib/functions/validateWebhook"
     );
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     mockValidateKickWebhook.mockRejectedValue(
       new KickWebhookSignatureError("invalid signature")
@@ -307,14 +310,7 @@ describe("index routes", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
-    expect(mockLogErrorToD1).not.toHaveBeenCalled();
-
-    const missingWarnCount = warnSpy.mock.calls.filter(([message]) =>
-      String(message).includes("Missing ERROR_LOG_DB binding")
-    ).length;
-    expect(missingWarnCount).toBe(1);
-
-    warnSpy.mockClear();
+    expect(mockRecordError).toHaveBeenCalledTimes(1);
 
     const secondResponse = await app.request(
       "/webhook",
@@ -324,14 +320,7 @@ describe("index routes", () => {
 
     expect(secondResponse.status).toBe(403);
     expect(await secondResponse.json()).toEqual({ error: "Unauthorized" });
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes("Missing ERROR_LOG_DB binding")
-      )
-    ).toBe(false);
-
-    expect(mockLogErrorToD1).not.toHaveBeenCalled();
-    expect(mockNotifyDeveloperOfError).toHaveBeenCalledTimes(2);
+    expect(mockRecordError).toHaveBeenCalledTimes(2);
   });
 
   test("POST /webhook records validation errors when DB configured", async () => {
@@ -357,45 +346,11 @@ describe("index routes", () => {
 
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: "bad payload" });
-    expect(mockLogErrorToD1).toHaveBeenCalledTimes(1);
-    expect(mockNotifyDeveloperOfError).toHaveBeenCalledTimes(1);
-  });
+    expect(mockRecordError).toHaveBeenCalledTimes(1);
 
-  test("recordError tolerates downstream failures", async () => {
-    const app = await loadApp();
-    const env = {
-      ERROR_LOG_DB: { prepared: true } as unknown as D1Database,
-    } satisfies Partial<Env>;
-
-    const { KickWebhookError } = await import(
-      "../src/lib/functions/validateWebhook"
-    );
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    mockValidateKickWebhook.mockRejectedValueOnce(
-      new KickWebhookError("oops", 400)
-    );
-    mockLogErrorToD1.mockRejectedValueOnce(new Error("db down"));
-    mockNotifyDeveloperOfError.mockRejectedValueOnce(new Error("mail down"));
-
-    const response = await app.request(
-      "/webhook",
-      { method: "POST", body: "{}" },
-      env as Env
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "oops" });
-    expect(
-      errorSpy.mock.calls.filter(([message]) =>
-        String(message).includes("Failed to persist error log")
-      ).length
-    ).toBe(1);
-    expect(
-      errorSpy.mock.calls.filter(([message]) =>
-        String(message).includes("Failed to send developer notification")
-      ).length
-    ).toBe(1);
+    const [recordedEnv, entry] = mockRecordError.mock.calls[0];
+    expect(recordedEnv).toBe(env);
+    expect(entry).toMatchObject({ message: "bad payload", status: 422 });
   });
 
   test("POST /webhook reports unexpected errors", async () => {
@@ -421,6 +376,7 @@ describe("index routes", () => {
         String(message).includes("Unexpected webhook failure")
       )
     ).toBe(true);
+    expect(mockRecordError).toHaveBeenCalledTimes(1);
   });
 
   test("GET /health responds with ok", async () => {
@@ -430,5 +386,10 @@ describe("index routes", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+  });
+
+  test("default index export initialises the app", async () => {
+    const module = await import("../src/index");
+    expect(module.default).toBeDefined();
   });
 });

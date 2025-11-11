@@ -16,6 +16,10 @@ interface MailChannelsEnv {
 
 let missingMailChannelsWarningShown = false;
 
+/**
+ * Sends a richly formatted MailChannels notification describing the runtime
+ * error so developers can react quickly.
+ */
 export async function notifyDeveloperOfError(
   env: MailChannelsEnv,
   entry: ErrorLogEntry,

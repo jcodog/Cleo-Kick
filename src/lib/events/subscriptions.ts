@@ -3,16 +3,19 @@ import {
   SubscriptionGiftEvent,
   SubscriptionRenewalEvent,
 } from "kick-api-types/payloads";
-import { context } from "../..";
 import { DbClient } from "../prisma";
 import { sendMessage } from "../functions/messages";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import type { KickBroadcasterAuth } from "../functions/middleware";
+import type { WebhookContext } from "../app/types";
 
+/**
+ * Thanks viewers who start a new subscription.
+ */
 export const newSubscriber = async (
   event: NewSubscriptionEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"
@@ -50,10 +53,13 @@ export const newSubscriber = async (
   }
 };
 
+/**
+ * Celebrates subscription gift batches initiated by a viewer.
+ */
 export const giftedSubs = async (
   event: SubscriptionGiftEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"
@@ -91,10 +97,13 @@ export const giftedSubs = async (
   }
 };
 
+/**
+ * Highlights viewers who renew their existing subscription.
+ */
 export const renewedSub = async (
   event: SubscriptionRenewalEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"

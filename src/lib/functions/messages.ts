@@ -3,6 +3,9 @@ import {
   RESTPostChatMessageResult,
 } from "kick-api-types/rest";
 
+/**
+ * Sends a message to a Kick chat channel on behalf of the broadcaster.
+ */
 export const sendMessage = async ({
   broadcaster,
   message,

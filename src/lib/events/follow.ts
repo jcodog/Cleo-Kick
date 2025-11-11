@@ -1,14 +1,18 @@
 import { ChannelFollowEvent } from "kick-api-types/payloads";
 import { DbClient } from "../prisma";
-import { context } from "../..";
 import { sendMessage } from "../functions/messages";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import type { KickBroadcasterAuth } from "../functions/middleware";
+import type { WebhookContext } from "../app/types";
 
+/**
+ * Welcomes new followers by sending a thank-you chat message on behalf of the
+ * broadcaster.
+ */
 export const followEvent = async (
   event: ChannelFollowEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"

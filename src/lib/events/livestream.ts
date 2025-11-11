@@ -1,14 +1,17 @@
 import { LivestreamStatusUpdatedEvent } from "kick-api-types/payloads";
 import { DbClient } from "../prisma";
-import { context } from "../..";
 import { sendMessage } from "../functions/messages";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import type { KickBroadcasterAuth } from "../functions/middleware";
+import type { WebhookContext } from "../app/types";
 
+/**
+ * Notifies chat when a broadcaster toggles their livestream status.
+ */
 export const livestreamStatusUpdate = async (
   event: LivestreamStatusUpdatedEvent,
   _db: DbClient,
-  ctx: context
+  ctx: WebhookContext
 ) => {
   const broadcasterAuth = ctx.get(
     "kickBroadcasterAuth"
