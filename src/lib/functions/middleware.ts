@@ -278,6 +278,9 @@ async function resolveBroadcasterAuth<
       refreshTokenExpiresAt: true,
     },
   });
+
+  console.log("[account-lookup-result]", JSON.stringify(account));
+
   if (steps && lookupStep) {
     steps.success(lookupStep, { found: Boolean(account) });
   }

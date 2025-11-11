@@ -25,7 +25,7 @@
   "routes": [
     {
       "custom_domain": true,
-      "pattern": "kickbot.cleoai.cloud"
+      "pattern": "kickhooks.cleoai.cloud"
     }
   ]
 }
