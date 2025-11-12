@@ -186,8 +186,10 @@ exports.Prisma.ErrorLogScalarFieldEnum = {
   id: 'id',
   process: 'process',
   message: 'message',
+  status: 'status',
   stackTrace: 'stackTrace',
-  timestamp: 'timestamp'
+  context: 'context',
+  createdAt: 'createdAt'
 };
 
 exports.Prisma.IncidentsScalarFieldEnum = {

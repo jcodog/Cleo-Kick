@@ -13,13 +13,6 @@
   "observability": {
     "enabled": true
   },
-  "d1_databases": [
-    {
-      "binding": "ERROR_LOG_DB",
-      "database_name": "cleo-kick",
-      "database_id": "4c98a884-89e3-4813-9d14-64b36dda2bca"
-    }
-  ],
   "preview_urls": false,
   "workers_dev": false,
   "routes": [

@@ -1,202 +1,203 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { notifyDeveloperOfErrorMock } = vi.hoisted(() => ({
-  notifyDeveloperOfErrorMock: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const notifyDeveloperOfError = vi.fn();
+  const errorLogCreate = vi.fn();
+  const getDb = vi.fn(() => ({
+    errorLog: {
+      create: errorLogCreate,
+    },
+  }));
+  const logtailInstance = {
+    error: vi.fn().mockResolvedValue(undefined),
+  };
+  const Logtail = vi.fn(function mockLogtail(this: unknown, _token: string) {
+    return logtailInstance;
+  });
+
+  return {
+    notifyDeveloperOfError,
+    errorLogCreate,
+    getDb,
+    logtailInstance,
+    Logtail,
+  } as const;
+});
 
 vi.mock("../src/lib/functions/errors/notifyDeveloper", () => ({
-  notifyDeveloperOfError: notifyDeveloperOfErrorMock,
+  notifyDeveloperOfError: mocks.notifyDeveloperOfError,
 }));
 
-describe("logErrorToD1", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.resetModules();
-    notifyDeveloperOfErrorMock.mockReset();
-  });
+vi.mock("../src/lib/prisma", () => ({
+  getDb: mocks.getDb,
+}));
 
-  test("initializes schema once and stores error entry", async () => {
-    const createRun = vi.fn().mockResolvedValue(undefined);
-    const insertRun = vi.fn().mockResolvedValue(undefined);
-    const bind = vi.fn().mockReturnValue({ run: insertRun });
-
-    const prepare = vi.fn().mockImplementation((sql: string) => {
-      if (sql.includes("CREATE TABLE")) {
-        return { run: createRun };
-      }
-      return { bind };
-    });
-
-    const d1 = { prepare } as unknown as D1Database;
-
-    const longContextValue = "x".repeat(20_000);
-    const { logErrorToD1 } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    await logErrorToD1(d1, {
-      message: "Boom",
-      status: 500,
-      context: { info: longContextValue },
-    });
-
-    expect(prepare).toHaveBeenCalledTimes(2);
-    expect(createRun).toHaveBeenCalledTimes(1);
-    expect(bind).toHaveBeenCalledWith(
-      500,
-      "Boom",
-      JSON.stringify({ info: longContextValue }).slice(0, 16_000)
-    );
-    expect(insertRun).toHaveBeenCalledTimes(1);
-  });
-
-  test("skips schema creation on subsequent calls and handles missing context", async () => {
-    const createRun = vi.fn().mockResolvedValue(undefined);
-    const insertRun = vi.fn().mockResolvedValue(undefined);
-    const bind = vi.fn().mockReturnValue({ run: insertRun });
-
-    const prepare = vi.fn().mockImplementation((sql: string) => {
-      if (sql.includes("CREATE TABLE")) {
-        return { run: createRun };
-      }
-      return { bind };
-    });
-
-    const d1 = { prepare } as unknown as D1Database;
-
-    const { logErrorToD1 } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    await logErrorToD1(d1, { message: "First" });
-    await logErrorToD1(d1, { message: "Second", status: 404 });
-
-    const createSqlCount = prepare.mock.calls.filter(([sql]) =>
-      sql.includes("CREATE TABLE")
-    ).length;
-
-    expect(createSqlCount).toBe(1);
-    expect(bind).toHaveBeenNthCalledWith(1, null, "First", null);
-    expect(bind).toHaveBeenNthCalledWith(2, 404, "Second", null);
-    expect(insertRun).toHaveBeenCalledTimes(2);
-  });
-});
+vi.mock("@logtail/node", () => ({
+  __esModule: true,
+  Logtail: mocks.Logtail,
+}));
 
 describe("recordError", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
-    notifyDeveloperOfErrorMock.mockReset();
+    mocks.notifyDeveloperOfError.mockReset();
+    mocks.notifyDeveloperOfError.mockResolvedValue(undefined);
+    mocks.errorLogCreate.mockReset();
+    mocks.errorLogCreate.mockResolvedValue(undefined);
+    mocks.getDb.mockReset();
+    mocks.getDb.mockImplementation(() => ({
+      errorLog: {
+        create: mocks.errorLogCreate,
+      },
+    }));
+    mocks.logtailInstance.error.mockReset();
+    mocks.logtailInstance.error.mockResolvedValue(undefined);
+    mocks.Logtail.mockReset();
+    mocks.Logtail.mockImplementation(function mockLogtailInstance() {
+      return mocks.logtailInstance;
+    });
   });
 
-  test("warns once when missing ERROR_LOG_DB and still notifies developers", async () => {
-    notifyDeveloperOfErrorMock.mockResolvedValue(undefined);
-
+  test("warns once when database url is missing and still notifies developers", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const module = await import("../src/lib/functions/errors/logError");
-    const logErrorSpy = vi.spyOn(module, "logErrorToD1");
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
 
-    const env = {} as Record<string, unknown>;
     const entry = { message: "boom" };
+    await recordError({} as any, entry);
+    await recordError({} as any, entry);
 
-    await module.recordError(env as any, entry);
-    await module.recordError(env as any, entry);
-
-    expect(logErrorSpy).not.toHaveBeenCalled();
+    expect(mocks.getDb).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(notifyDeveloperOfErrorMock).toHaveBeenCalledTimes(2);
+    expect(mocks.notifyDeveloperOfError).toHaveBeenCalledTimes(2);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  test("persists error logs when ERROR_LOG_DB is configured", async () => {
-    notifyDeveloperOfErrorMock.mockResolvedValue(undefined);
-
+  test("persists error logs when database configuration is present", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const module = await import("../src/lib/functions/errors/logError");
-    const createRun = vi.fn().mockResolvedValue(undefined);
-    const insertRun = vi.fn().mockResolvedValue(undefined);
-    const bind = vi.fn().mockReturnValue({ run: insertRun });
-    const prepare = vi.fn().mockImplementation((sql: string) => {
-      if (sql.includes("CREATE TABLE")) {
-        return { run: createRun };
-      }
-      return { bind };
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+      ERROR_LOG_PROCESS_NAME: "worker",
+    };
+
+    await recordError(env as any, {
+      message: "boom",
+      status: 500,
+      context: { foo: "bar" },
     });
 
-    const env = { ERROR_LOG_DB: { prepare } };
-    const entry = { message: "boom" };
-
-    await module.recordError(env as any, entry);
-
-    expect(prepare).toHaveBeenCalled();
-    expect(bind).toHaveBeenCalledWith(null, "boom", null);
-    expect(insertRun).toHaveBeenCalledTimes(1);
+    expect(mocks.getDb).toHaveBeenCalledWith("postgres://example");
+    expect(mocks.errorLogCreate).toHaveBeenCalledTimes(1);
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
+    expect(createArgs.data).toMatchObject({
+      process: "worker",
+      message: "boom",
+      status: 500,
+    });
+    expect(createArgs.data.context).toContain('"foo": "bar"');
     expect(warnSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(notifyDeveloperOfErrorMock).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyDeveloperOfError).toHaveBeenCalledTimes(1);
   });
 
-  test("logs persistence failures but keeps processing", async () => {
-    notifyDeveloperOfErrorMock.mockResolvedValue(undefined);
-
+  test("logs persistence failures but continues processing", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const module = await import("../src/lib/functions/errors/logError");
-    const createRun = vi.fn().mockResolvedValue(undefined);
-    const insertRun = vi.fn().mockRejectedValue(new Error("persist failed"));
-    const bind = vi.fn().mockReturnValue({ run: insertRun });
-    const prepare = vi.fn().mockImplementation((sql: string) => {
-      if (sql.includes("CREATE TABLE")) {
-        return { run: createRun };
-      }
-      return { bind };
+    mocks.errorLogCreate.mockRejectedValueOnce(new Error("persist failed"));
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    await recordError({ DATABASE_URL: "postgres://example" } as any, {
+      message: "boom",
     });
 
-    const env = { ERROR_LOG_DB: { prepare } };
-    const entry = { message: "boom" };
-
-    await module.recordError(env as any, entry);
-
-    expect(prepare).toHaveBeenCalled();
-    expect(bind).toHaveBeenCalled();
+    expect(mocks.errorLogCreate).toHaveBeenCalledTimes(1);
     expect(warnSpy).not.toHaveBeenCalled();
-    expect(notifyDeveloperOfErrorMock).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith(
       "Failed to persist error log",
       expect.any(Error)
     );
+    expect(mocks.notifyDeveloperOfError).toHaveBeenCalledTimes(1);
+  });
+
+  test("forwards errors to Logtail when configured", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    await recordError(
+      {
+        DATABASE_URL: "postgres://example",
+        LOGTAIL_SOURCE_TOKEN: "test-token",
+      } as any,
+      { message: "boom", status: 502 }
+    );
+
+    expect(mocks.Logtail).toHaveBeenCalledWith("test-token");
+    expect(mocks.logtailInstance.error).toHaveBeenCalledWith("boom", {
+      context: null,
+      process: "kick-bot",
+      status: 502,
+      timestamp: expect.any(String),
+    });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("logs Logtail failures but continues", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.logtailInstance.error.mockRejectedValueOnce(
+      new Error("logtail down")
+    );
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    await recordError(
+      {
+        DATABASE_URL: "postgres://example",
+        LOGTAIL_SOURCE_TOKEN: "test-token",
+      } as any,
+      { message: "boom" }
+    );
+
+    expect(mocks.logtailInstance.error).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Failed to send error to Logtail",
+      expect.any(Error)
+    );
+    expect(mocks.notifyDeveloperOfError).toHaveBeenCalledTimes(1);
   });
 
   test("logs notification failures", async () => {
-    notifyDeveloperOfErrorMock.mockRejectedValue(new Error("notify failed"));
-
-    vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.notifyDeveloperOfError.mockRejectedValueOnce(
+      new Error("notify failed")
+    );
 
-    const module = await import("../src/lib/functions/errors/logError");
-    const createRun = vi.fn().mockResolvedValue(undefined);
-    const insertRun = vi.fn().mockResolvedValue(undefined);
-    const bind = vi.fn().mockReturnValue({ run: insertRun });
-    const prepare = vi.fn().mockImplementation((sql: string) => {
-      if (sql.includes("CREATE TABLE")) {
-        return { run: createRun };
-      }
-      return { bind };
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    await recordError({ DATABASE_URL: "postgres://example" } as any, {
+      message: "boom",
     });
 
-    const env = { ERROR_LOG_DB: { prepare } };
-    const entry = { message: "boom" };
-
-    await module.recordError(env as any, entry);
-
-    expect(prepare).toHaveBeenCalled();
-    expect(bind).toHaveBeenCalled();
-    expect(notifyDeveloperOfErrorMock).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith(
       "Failed to send developer notification",
       expect.any(Error)

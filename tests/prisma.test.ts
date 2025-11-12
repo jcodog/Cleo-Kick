@@ -24,8 +24,9 @@ const prismaMocks = vi.hoisted(() => {
   return { PrismaClient } as const;
 });
 
-vi.mock("../src/prisma/edge", () => ({
+vi.mock("../src/prisma", () => ({
   PrismaClient: prismaMocks.PrismaClient,
+  Prisma: {},
 }));
 
 const accelerateMocks = vi.hoisted(() => ({

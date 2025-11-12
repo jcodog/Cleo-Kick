@@ -24,6 +24,21 @@ bun run dev
 
 This starts Wrangler in development mode and serves the Worker locally.
 
+### VPS / Node Runtime
+
+To run the Kick bot on a traditional VPS (or any Node-compatible host), use
+the bundled Hono Node server:
+
+```bash
+bun run start
+```
+
+Provide the required environment variables (for example via a `.env` file or
+your process manager). At minimum you will need `DATABASE_URL`,
+`KICK_CLIENT_ID`, `KICK_CLIENT_SECRET`, and any MailChannels settings you rely
+on. If you are using Prisma Accelerate, expose `PRISMA_ACCELERATE_URL` with your
+Accelerate connection string so the cached reads remain active.
+
 ## Type Checking
 
 ```bash
@@ -54,23 +69,40 @@ The CI workflow publishes the HTML report and a Vitest results summary (at `/tes
 
 ## Deployment
 
-Deployment is handled automatically via the GitHub ➜ Cloudflare Workers integration. Pushes to the default branch trigger Cloudflare to build the Worker using Bun and publish it with the settings in `wrangler.json`.
+Cloudflare Workers deployment is still supported and handled automatically via
+the GitHub ➜ Cloudflare Workers integration. Pushes to the default branch
+trigger Cloudflare to build the Worker using Bun and publish it with the
+settings in `wrangler.json`.
+
+For self-hosted deployments, run `bun install` followed by `bun run start`
+under your preferred process supervisor.
 
 ## Observability & Error Logging
 
-- Cloudflare observability is enabled in `wrangler.json` to surface traces and logs inside the Workers dashboard.
-- Configure a Cloudflare D1 database and update the `ERROR_LOG_DB` binding in `wrangler.json` (`database_id`/`database_name`).
-- Create the backing table once (Wrangler CLI or dashboard):
+- Cloudflare observability remains enabled in `wrangler.json` so Workers deployments still surface traces and logs in the dashboard.
+- Runtime failures are now persisted through Prisma’s `ErrorLog` model in the primary Postgres database. Apply the latest schema with:
 
   ```bash
-  bunx wrangler d1 execute kick-bot-errors --command "CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), status INTEGER, message TEXT NOT NULL, context TEXT);"
+  bunx prisma migrate dev --name add_error_log_table
   ```
 
-- Each webhook failure is recorded with status, message, and JSON context. Review entries via the Cloudflare dashboard or:
+  You can review entries locally with Prisma Studio:
 
   ```bash
-  bunx wrangler d1 execute kick-bot-errors --command "SELECT * FROM error_logs ORDER BY created_at DESC LIMIT 20;"
+  bunx prisma studio --browser none
   ```
+
+- Tag persisted records (and outbound notifications) with a friendly name by setting `ERROR_LOG_PROCESS_NAME` in your environment.
+- Forward structured error data to Logtail by creating a source at <https://logtail.com>, copying the source token, and setting `LOGTAIL_SOURCE_TOKEN` in your environment (or `.env`). The app will stream errors automatically whenever the token is present.
+- Verify your MailChannels configuration without triggering real errors by calling the diagnostic route:
+
+  ```bash
+  curl -X POST http://localhost:8787/debug/test-email \
+    -H "Content-Type: application/json" \
+    -d '{"message":"Test from Cleo Kick"}'
+  ```
+
+  The route returns `{ "status": "sent" }` once the email dispatch is queued.
 
 ## Configuration
 
@@ -81,10 +113,11 @@ Deployment is handled automatically via the GitHub ➜ Cloudflare Workers integr
 - `GET /` — redirects to the configured dashboard URL.
 - `POST /webhook` — accepts Kick webhook events (expects JSON payloads).
 - `GET /health` — lightweight readiness probe.
+- `POST /debug/test-email` — sends a MailChannels test message to the configured developer inbox.
 
 ## Project Structure
 
 - `src/index.ts` — Hono application entry point exported as the Worker.
-- `wrangler.json` — Cloudflare Workers configuration consumed by the CI deployment (includes observability + D1 bindings).
+- `wrangler.json` — Cloudflare Workers configuration consumed by the CI deployment (observability, routes, and legacy Worker settings).
 - `tsconfig.json` — TypeScript compiler settings tailored for Workers.
 - `bunfig.toml` — Bun configuration.

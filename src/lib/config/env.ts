@@ -1,14 +1,13 @@
 /* c8 ignore file */
 /* c8 ignore file */
 /**
- * Cloudflare Worker bindings exposed to the Kick bot runtime.
+ * Runtime configuration surface exposed to the Kick bot Hono application.
  *
- * The optional properties align with the bindings configured in wrangler.toml
- * and allow the application to safely reference them at runtime.
+ * All properties are optional to simplify local development and testing; any
+ * runtime requirements should be asserted at the call site.
  */
 export interface Env {
   readonly DASHBOARD_URL?: string;
-  readonly ERROR_LOG_DB?: D1Database;
   readonly DEVELOPER_EMAIL?: string;
   readonly MAILCHANNELS_API_KEY?: string;
   readonly MAILCHANNELS_DKIM_DOMAIN?: string;
@@ -20,4 +19,7 @@ export interface Env {
   readonly DIRECT_URL?: string;
   readonly KICK_CLIENT_ID?: string;
   readonly KICK_CLIENT_SECRET?: string;
+  readonly PORT?: string;
+  readonly ERROR_LOG_PROCESS_NAME?: string;
+  readonly LOGTAIL_SOURCE_TOKEN?: string;
 }

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { D1Database } from "@cloudflare/workers-types";
 import type { Env } from "../src/index";
 
 const mockValidateKickWebhook = vi.fn();
@@ -26,6 +25,7 @@ const mockKicksGifted = vi.fn(async (_event, _db, ctx) =>
 const mockCommandReply = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ message: "ok" }, { status: 200 })
 );
+const mockNotifyDeveloper = vi.fn();
 class MockKickWebhookError extends Error {
   status: number;
 
@@ -50,6 +50,10 @@ vi.mock("../src/lib/functions/validateWebhook", () => ({
   KickWebhookSignatureError: MockKickWebhookSignatureError,
 }));
 
+vi.mock("../src/lib/functions/errors/notifyDeveloper", () => ({
+  notifyDeveloperOfError: mockNotifyDeveloper,
+}));
+
 async function loadApp() {
   vi.resetModules();
   mockValidateKickWebhook.mockReset();
@@ -64,6 +68,8 @@ async function loadApp() {
   mockRenewedSub.mockReset();
   mockKicksGifted.mockReset();
   mockCommandReply.mockReset();
+  mockNotifyDeveloper.mockReset();
+  mockNotifyDeveloper.mockResolvedValue(undefined);
   mockFollowEvent.mockImplementation(async (_event, _db, ctx) =>
     ctx.json({ received: true }, { status: 200 })
   );
@@ -326,7 +332,7 @@ describe("index routes", () => {
   test("POST /webhook records validation errors when DB configured", async () => {
     const app = await loadApp();
     const env = {
-      ERROR_LOG_DB: { prepared: true } as unknown as D1Database,
+      DATABASE_URL: "postgres://example",
       MAILCHANNELS_API_KEY: "key",
     } satisfies Partial<Env>;
 
@@ -360,7 +366,7 @@ describe("index routes", () => {
     mockValidateKickWebhook.mockRejectedValueOnce("boom");
 
     const env = {
-      ERROR_LOG_DB: { prepared: true } as unknown as D1Database,
+      DATABASE_URL: "postgres://example",
     } satisfies Partial<Env>;
 
     const response = await app.request(
@@ -386,6 +392,57 @@ describe("index routes", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+  });
+
+  test("POST /debug/test-email returns 400 when developer email missing", async () => {
+    const app = await loadApp();
+
+    const response = await app.request(
+      "/debug/test-email",
+      { method: "POST", body: JSON.stringify({ message: "hello" }) },
+      {} as Env
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Developer email not configured",
+    });
+    expect(mockNotifyDeveloper).not.toHaveBeenCalled();
+  });
+
+  test("POST /debug/test-email sends a test message", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+      MAILCHANNELS_API_KEY: "key",
+      MAILCHANNELS_DKIM_DOMAIN: "cleo.ai",
+      MAILCHANNELS_DKIM_SELECTOR: "cleo",
+      MAILCHANNELS_DKIM_PRIVATE_KEY: "---key---",
+      MAILCHANNELS_FROM_EMAIL: "cleo@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: JSON.stringify({ message: "Ping" }),
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    expect(mockNotifyDeveloper).toHaveBeenCalledTimes(1);
+    const [notifyEnv, entry, timestamp] = mockNotifyDeveloper.mock.calls[0];
+    expect(notifyEnv).toBe(env);
+    expect(entry).toMatchObject({
+      message: "Ping",
+      status: 200,
+    });
+    expect(typeof timestamp).toBe("string");
   });
 
   test("default index export initialises the app", async () => {

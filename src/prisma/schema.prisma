@@ -133,8 +133,10 @@ model ErrorLog {
   id         String   @id @default(cuid())
   process    String
   message    String
-  stackTrace String
-  timestamp  DateTime @default(now())
+  status     Int?
+  stackTrace String?
+  context    String?
+  createdAt  DateTime @default(now())
 }
 
 model Incidents {

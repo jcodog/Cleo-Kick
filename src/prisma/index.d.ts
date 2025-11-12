@@ -8126,58 +8126,88 @@ export namespace Prisma {
 
   export type AggregateErrorLog = {
     _count: ErrorLogCountAggregateOutputType | null
+    _avg: ErrorLogAvgAggregateOutputType | null
+    _sum: ErrorLogSumAggregateOutputType | null
     _min: ErrorLogMinAggregateOutputType | null
     _max: ErrorLogMaxAggregateOutputType | null
+  }
+
+  export type ErrorLogAvgAggregateOutputType = {
+    status: number | null
+  }
+
+  export type ErrorLogSumAggregateOutputType = {
+    status: number | null
   }
 
   export type ErrorLogMinAggregateOutputType = {
     id: string | null
     process: string | null
     message: string | null
+    status: number | null
     stackTrace: string | null
-    timestamp: Date | null
+    context: string | null
+    createdAt: Date | null
   }
 
   export type ErrorLogMaxAggregateOutputType = {
     id: string | null
     process: string | null
     message: string | null
+    status: number | null
     stackTrace: string | null
-    timestamp: Date | null
+    context: string | null
+    createdAt: Date | null
   }
 
   export type ErrorLogCountAggregateOutputType = {
     id: number
     process: number
     message: number
+    status: number
     stackTrace: number
-    timestamp: number
+    context: number
+    createdAt: number
     _all: number
   }
 
+
+  export type ErrorLogAvgAggregateInputType = {
+    status?: true
+  }
+
+  export type ErrorLogSumAggregateInputType = {
+    status?: true
+  }
 
   export type ErrorLogMinAggregateInputType = {
     id?: true
     process?: true
     message?: true
+    status?: true
     stackTrace?: true
-    timestamp?: true
+    context?: true
+    createdAt?: true
   }
 
   export type ErrorLogMaxAggregateInputType = {
     id?: true
     process?: true
     message?: true
+    status?: true
     stackTrace?: true
-    timestamp?: true
+    context?: true
+    createdAt?: true
   }
 
   export type ErrorLogCountAggregateInputType = {
     id?: true
     process?: true
     message?: true
+    status?: true
     stackTrace?: true
-    timestamp?: true
+    context?: true
+    createdAt?: true
     _all?: true
   }
 
@@ -8219,6 +8249,18 @@ export namespace Prisma {
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
+     * Select which fields to average
+    **/
+    _avg?: ErrorLogAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ErrorLogSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
      * Select which fields to find the minimum value
     **/
     _min?: ErrorLogMinAggregateInputType
@@ -8249,6 +8291,8 @@ export namespace Prisma {
     take?: number
     skip?: number
     _count?: ErrorLogCountAggregateInputType | true
+    _avg?: ErrorLogAvgAggregateInputType
+    _sum?: ErrorLogSumAggregateInputType
     _min?: ErrorLogMinAggregateInputType
     _max?: ErrorLogMaxAggregateInputType
   }
@@ -8257,9 +8301,13 @@ export namespace Prisma {
     id: string
     process: string
     message: string
-    stackTrace: string
-    timestamp: Date
+    status: number | null
+    stackTrace: string | null
+    context: string | null
+    createdAt: Date
     _count: ErrorLogCountAggregateOutputType | null
+    _avg: ErrorLogAvgAggregateOutputType | null
+    _sum: ErrorLogSumAggregateOutputType | null
     _min: ErrorLogMinAggregateOutputType | null
     _max: ErrorLogMaxAggregateOutputType | null
   }
@@ -8282,35 +8330,43 @@ export namespace Prisma {
     id?: boolean
     process?: boolean
     message?: boolean
+    status?: boolean
     stackTrace?: boolean
-    timestamp?: boolean
+    context?: boolean
+    createdAt?: boolean
   }, ExtArgs["result"]["errorLog"]>
 
   export type ErrorLogSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     process?: boolean
     message?: boolean
+    status?: boolean
     stackTrace?: boolean
-    timestamp?: boolean
+    context?: boolean
+    createdAt?: boolean
   }, ExtArgs["result"]["errorLog"]>
 
   export type ErrorLogSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     process?: boolean
     message?: boolean
+    status?: boolean
     stackTrace?: boolean
-    timestamp?: boolean
+    context?: boolean
+    createdAt?: boolean
   }, ExtArgs["result"]["errorLog"]>
 
   export type ErrorLogSelectScalar = {
     id?: boolean
     process?: boolean
     message?: boolean
+    status?: boolean
     stackTrace?: boolean
-    timestamp?: boolean
+    context?: boolean
+    createdAt?: boolean
   }
 
-  export type ErrorLogOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "process" | "message" | "stackTrace" | "timestamp", ExtArgs["result"]["errorLog"]>
+  export type ErrorLogOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "process" | "message" | "status" | "stackTrace" | "context" | "createdAt", ExtArgs["result"]["errorLog"]>
 
   export type $ErrorLogPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "ErrorLog"
@@ -8319,8 +8375,10 @@ export namespace Prisma {
       id: string
       process: string
       message: string
-      stackTrace: string
-      timestamp: Date
+      status: number | null
+      stackTrace: string | null
+      context: string | null
+      createdAt: Date
     }, ExtArgs["result"]["errorLog"]>
     composites: {}
   }
@@ -8747,8 +8805,10 @@ export namespace Prisma {
     readonly id: FieldRef<"ErrorLog", 'String'>
     readonly process: FieldRef<"ErrorLog", 'String'>
     readonly message: FieldRef<"ErrorLog", 'String'>
+    readonly status: FieldRef<"ErrorLog", 'Int'>
     readonly stackTrace: FieldRef<"ErrorLog", 'String'>
-    readonly timestamp: FieldRef<"ErrorLog", 'DateTime'>
+    readonly context: FieldRef<"ErrorLog", 'String'>
+    readonly createdAt: FieldRef<"ErrorLog", 'DateTime'>
   }
     
 
@@ -18966,8 +19026,10 @@ export namespace Prisma {
     id: 'id',
     process: 'process',
     message: 'message',
+    status: 'status',
     stackTrace: 'stackTrace',
-    timestamp: 'timestamp'
+    context: 'context',
+    createdAt: 'createdAt'
   };
 
   export type ErrorLogScalarFieldEnum = (typeof ErrorLogScalarFieldEnum)[keyof typeof ErrorLogScalarFieldEnum]
@@ -19690,16 +19752,20 @@ export namespace Prisma {
     id?: StringFilter<"ErrorLog"> | string
     process?: StringFilter<"ErrorLog"> | string
     message?: StringFilter<"ErrorLog"> | string
-    stackTrace?: StringFilter<"ErrorLog"> | string
-    timestamp?: DateTimeFilter<"ErrorLog"> | Date | string
+    status?: IntNullableFilter<"ErrorLog"> | number | null
+    stackTrace?: StringNullableFilter<"ErrorLog"> | string | null
+    context?: StringNullableFilter<"ErrorLog"> | string | null
+    createdAt?: DateTimeFilter<"ErrorLog"> | Date | string
   }
 
   export type ErrorLogOrderByWithRelationInput = {
     id?: SortOrder
     process?: SortOrder
     message?: SortOrder
-    stackTrace?: SortOrder
-    timestamp?: SortOrder
+    status?: SortOrderInput | SortOrder
+    stackTrace?: SortOrderInput | SortOrder
+    context?: SortOrderInput | SortOrder
+    createdAt?: SortOrder
   }
 
   export type ErrorLogWhereUniqueInput = Prisma.AtLeast<{
@@ -19709,19 +19775,25 @@ export namespace Prisma {
     NOT?: ErrorLogWhereInput | ErrorLogWhereInput[]
     process?: StringFilter<"ErrorLog"> | string
     message?: StringFilter<"ErrorLog"> | string
-    stackTrace?: StringFilter<"ErrorLog"> | string
-    timestamp?: DateTimeFilter<"ErrorLog"> | Date | string
+    status?: IntNullableFilter<"ErrorLog"> | number | null
+    stackTrace?: StringNullableFilter<"ErrorLog"> | string | null
+    context?: StringNullableFilter<"ErrorLog"> | string | null
+    createdAt?: DateTimeFilter<"ErrorLog"> | Date | string
   }, "id">
 
   export type ErrorLogOrderByWithAggregationInput = {
     id?: SortOrder
     process?: SortOrder
     message?: SortOrder
-    stackTrace?: SortOrder
-    timestamp?: SortOrder
+    status?: SortOrderInput | SortOrder
+    stackTrace?: SortOrderInput | SortOrder
+    context?: SortOrderInput | SortOrder
+    createdAt?: SortOrder
     _count?: ErrorLogCountOrderByAggregateInput
+    _avg?: ErrorLogAvgOrderByAggregateInput
     _max?: ErrorLogMaxOrderByAggregateInput
     _min?: ErrorLogMinOrderByAggregateInput
+    _sum?: ErrorLogSumOrderByAggregateInput
   }
 
   export type ErrorLogScalarWhereWithAggregatesInput = {
@@ -19731,8 +19803,10 @@ export namespace Prisma {
     id?: StringWithAggregatesFilter<"ErrorLog"> | string
     process?: StringWithAggregatesFilter<"ErrorLog"> | string
     message?: StringWithAggregatesFilter<"ErrorLog"> | string
-    stackTrace?: StringWithAggregatesFilter<"ErrorLog"> | string
-    timestamp?: DateTimeWithAggregatesFilter<"ErrorLog"> | Date | string
+    status?: IntNullableWithAggregatesFilter<"ErrorLog"> | number | null
+    stackTrace?: StringNullableWithAggregatesFilter<"ErrorLog"> | string | null
+    context?: StringNullableWithAggregatesFilter<"ErrorLog"> | string | null
+    createdAt?: DateTimeWithAggregatesFilter<"ErrorLog"> | Date | string
   }
 
   export type IncidentsWhereInput = {
@@ -20795,56 +20869,70 @@ export namespace Prisma {
     id?: string
     process: string
     message: string
-    stackTrace: string
-    timestamp?: Date | string
+    status?: number | null
+    stackTrace?: string | null
+    context?: string | null
+    createdAt?: Date | string
   }
 
   export type ErrorLogUncheckedCreateInput = {
     id?: string
     process: string
     message: string
-    stackTrace: string
-    timestamp?: Date | string
+    status?: number | null
+    stackTrace?: string | null
+    context?: string | null
+    createdAt?: Date | string
   }
 
   export type ErrorLogUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     process?: StringFieldUpdateOperationsInput | string
     message?: StringFieldUpdateOperationsInput | string
-    stackTrace?: StringFieldUpdateOperationsInput | string
-    timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: NullableIntFieldUpdateOperationsInput | number | null
+    stackTrace?: NullableStringFieldUpdateOperationsInput | string | null
+    context?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ErrorLogUncheckedUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     process?: StringFieldUpdateOperationsInput | string
     message?: StringFieldUpdateOperationsInput | string
-    stackTrace?: StringFieldUpdateOperationsInput | string
-    timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: NullableIntFieldUpdateOperationsInput | number | null
+    stackTrace?: NullableStringFieldUpdateOperationsInput | string | null
+    context?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ErrorLogCreateManyInput = {
     id?: string
     process: string
     message: string
-    stackTrace: string
-    timestamp?: Date | string
+    status?: number | null
+    stackTrace?: string | null
+    context?: string | null
+    createdAt?: Date | string
   }
 
   export type ErrorLogUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
     process?: StringFieldUpdateOperationsInput | string
     message?: StringFieldUpdateOperationsInput | string
-    stackTrace?: StringFieldUpdateOperationsInput | string
-    timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: NullableIntFieldUpdateOperationsInput | number | null
+    stackTrace?: NullableStringFieldUpdateOperationsInput | string | null
+    context?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type ErrorLogUncheckedUpdateManyInput = {
     id?: StringFieldUpdateOperationsInput | string
     process?: StringFieldUpdateOperationsInput | string
     message?: StringFieldUpdateOperationsInput | string
-    stackTrace?: StringFieldUpdateOperationsInput | string
-    timestamp?: DateTimeFieldUpdateOperationsInput | Date | string
+    status?: NullableIntFieldUpdateOperationsInput | number | null
+    stackTrace?: NullableStringFieldUpdateOperationsInput | string | null
+    context?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type IncidentsCreateInput = {
@@ -22010,28 +22098,69 @@ export namespace Prisma {
     subscriptionId?: SortOrder
   }
 
+  export type IntNullableFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableFilter<$PrismaModel> | number | null
+  }
+
   export type ErrorLogCountOrderByAggregateInput = {
     id?: SortOrder
     process?: SortOrder
     message?: SortOrder
+    status?: SortOrder
     stackTrace?: SortOrder
-    timestamp?: SortOrder
+    context?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type ErrorLogAvgOrderByAggregateInput = {
+    status?: SortOrder
   }
 
   export type ErrorLogMaxOrderByAggregateInput = {
     id?: SortOrder
     process?: SortOrder
     message?: SortOrder
+    status?: SortOrder
     stackTrace?: SortOrder
-    timestamp?: SortOrder
+    context?: SortOrder
+    createdAt?: SortOrder
   }
 
   export type ErrorLogMinOrderByAggregateInput = {
     id?: SortOrder
     process?: SortOrder
     message?: SortOrder
+    status?: SortOrder
     stackTrace?: SortOrder
-    timestamp?: SortOrder
+    context?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type ErrorLogSumOrderByAggregateInput = {
+    status?: SortOrder
+  }
+
+  export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedIntNullableFilter<$PrismaModel>
+    _max?: NestedIntNullableFilter<$PrismaModel>
   }
 
   export type EnumIncidentsTypeFilter<$PrismaModel = never> = {
@@ -22725,6 +22854,14 @@ export namespace Prisma {
     update?: XOR<XOR<ServersUpdateToOneWithWhereWithoutServerSubscriptionsInput, ServersUpdateWithoutServerSubscriptionsInput>, ServersUncheckedUpdateWithoutServerSubscriptionsInput>
   }
 
+  export type NullableIntFieldUpdateOperationsInput = {
+    set?: number | null
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
+  }
+
   export type EnumIncidentsTypeFieldUpdateOperationsInput = {
     set?: $Enums.IncidentsType
   }
@@ -23177,6 +23314,33 @@ export namespace Prisma {
     _count?: NestedIntFilter<$PrismaModel>
     _min?: NestedEnumSourcesFilter<$PrismaModel>
     _max?: NestedEnumSourcesFilter<$PrismaModel>
+  }
+
+  export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedIntNullableFilter<$PrismaModel>
+    _max?: NestedIntNullableFilter<$PrismaModel>
+  }
+
+  export type NestedFloatNullableFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
   }
 
   export type NestedEnumIncidentsTypeFilter<$PrismaModel = never> = {

@@ -7,14 +7,13 @@ import {
 } from "./validateWebhook";
 import type { ErrorLogEntry } from "./errors/logError";
 import type { Env } from "../config/env";
-import { getDb, type DbClient } from "../prisma";
+import { getDb, Prisma, type DbClient } from "../prisma";
 import {
   OAuth2AuthorizationUrl,
   Routes,
   type RESTPostOAuth2RefreshTokenResult,
 } from "kick-api-types/rest";
 import type { AppVariables } from "../app/types";
-import { Prisma } from "../../prisma/edge";
 
 export interface KickBroadcasterAuth {
   accountId: string;
@@ -23,7 +22,7 @@ export interface KickBroadcasterAuth {
 
 const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 const LOG_PREFIX = "[kick-webhook-middleware]";
-const ACCOUNT_CACHE_TTL_SECONDS = 60;
+const ACCOUNT_CACHE_TTL_SECONDS = 60 * 60;
 const ACCOUNT_CACHE_SWR_SECONDS = 300;
 const ACCOUNT_CACHE_TAG_PREFIX = "account";
 const ACCOUNT_CACHE_TAG_MAX_LENGTH = 64;
