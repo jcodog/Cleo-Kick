@@ -1,13 +1,12 @@
-const path = require("path");
 module.exports = {
   apps: [
     {
       name: "cleo-kick",
-      interpreter: path.join(process.env.HOME, ".bun/bin/bun"),
-      script: "src/server.ts", // or "dist/server.js"
+      interpreter: "/root/.bun/bin/bun",
+      script: "src/server.ts",
       cwd: "/opt/cleo-kick/current",
-      exec_mode: "cluster",
-      instances: "max",
+      exec_mode: "fork",
+      instances: 1,
       env: { NODE_ENV: "production" },
     },
   ],
