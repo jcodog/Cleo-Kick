@@ -392,6 +392,51 @@ async function resolveBroadcasterAuth<
         ? null
         : account.accessTokenExpiresAt;
 
+    let validationStep: StepHandle | undefined;
+    let introspection: TokenIntrospectionResult | undefined;
+    if (steps) {
+      validationStep = steps.start("Validate refresh token", {
+        broadcasterAccountId,
+      });
+    }
+
+    try {
+      introspection = await validateRefreshToken({
+        refreshToken: account.refreshToken,
+        clientId,
+        clientSecret,
+      });
+
+      if (steps && validationStep) {
+        const meta: Record<string, unknown> = {
+          active: introspection.active,
+        };
+        if (typeof introspection.exp === "number") {
+          meta.expiresAt = new Date(introspection.exp * 1000);
+        }
+        if (typeof introspection.token_type === "string") {
+          meta.tokenType = introspection.token_type;
+        }
+        steps.success(validationStep, meta);
+      }
+    } catch (error) {
+      if (steps && validationStep) {
+        steps.fail(validationStep, error);
+      }
+    }
+
+    if (introspection && !introspection.active) {
+      const reason =
+        typeof introspection.error_description === "string"
+          ? introspection.error_description
+          : typeof introspection.error === "string"
+          ? introspection.error
+          : "inactive";
+      throw new Error(
+        `Kick refresh token for account ${account.accountId} is not active (${reason})`
+      );
+    }
+
     let refreshStep: StepHandle | undefined;
     if (steps) {
       refreshStep = steps.start("Refresh broadcaster access token", {
@@ -486,6 +531,120 @@ interface RefreshOptions {
   clientSecret: string;
 }
 
+type RefreshTokenValidationOptions = RefreshOptions & {
+  tokenTypeHint?: "access_token" | "refresh_token";
+};
+
+type TokenIntrospectionResult = {
+  active: boolean;
+  scope?: string;
+  token_type?: string;
+  exp?: number;
+  client_id?: string;
+  sub?: string;
+  error?: string;
+  error_description?: string;
+  [key: string]: unknown;
+};
+
+async function validateRefreshToken(
+  options: RefreshTokenValidationOptions
+): Promise<TokenIntrospectionResult> {
+  const url = `${OAuth2AuthorizationUrl}${Routes.TokenIntrospect()}`;
+  const params = new URLSearchParams({
+    token: options.refreshToken,
+    token_type_hint: options.tokenTypeHint ?? "refresh_token",
+    client_id: options.clientId,
+    client_secret: options.clientSecret,
+  });
+
+  let encodedCredentials: string | undefined;
+  if (typeof btoa === "function") {
+    encodedCredentials = btoa(`${options.clientId}:${options.clientSecret}`);
+  } else if (typeof Buffer !== "undefined") {
+    encodedCredentials = Buffer.from(
+      `${options.clientId}:${options.clientSecret}`,
+      "utf8"
+    ).toString("base64");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    Accept: "application/json",
+  };
+
+  if (encodedCredentials) {
+    headers.Authorization = `Basic ${encodedCredentials}`;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: params.toString(),
+  });
+
+  const rawBody = await safeReadBody(response);
+
+  if (!response.ok) {
+    const detail = extractKickErrorDetail(rawBody);
+    throw new Error(
+      `Kick token introspection failed (${response.status}): ${detail}`
+    );
+  }
+
+  if (!rawBody || rawBody === "<no response body>") {
+    throw new Error("Kick token introspection returned an empty response");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody) as TokenIntrospectionResult;
+  } catch {
+    throw new Error("Kick token introspection returned malformed JSON");
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof (parsed as TokenIntrospectionResult).active !== "boolean"
+  ) {
+    throw new Error("Kick token introspection returned unexpected payload");
+  }
+
+  return parsed as TokenIntrospectionResult;
+}
+
+function extractKickErrorDetail(raw: string): string {
+  if (!raw) {
+    return "<empty response body>";
+  }
+
+  if (raw === "<no response body>") {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: unknown;
+      error_description?: unknown;
+    };
+
+    if (typeof parsed === "object" && parsed !== null) {
+      if (typeof parsed.error_description === "string") {
+        return parsed.error_description;
+      }
+
+      if (typeof parsed.error === "string") {
+        return parsed.error;
+      }
+    }
+  } catch {
+    // fall through to raw output
+  }
+
+  return raw;
+}
+
 async function refreshAccessToken(
   options: RefreshOptions
 ): Promise<RESTPostOAuth2RefreshTokenResult> {
@@ -534,6 +693,7 @@ async function safeReadBody(response: Response): Promise<string> {
 export const __test = {
   resolveBroadcasterAuth,
   refreshAccessToken,
+  validateRefreshToken,
   extractBroadcasterAccountId,
   getAccountCacheTag,
 } as const;

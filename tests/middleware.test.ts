@@ -299,17 +299,29 @@ describe("createKickWebhookValidationMiddleware", () => {
     const newToken = "new-access";
     const newRefresh = "new-refresh";
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        access_token: newToken,
-        refresh_token: newRefresh,
-        expires_in: 3600,
-        token_type: "bearer",
-        scope: "",
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: newToken,
+          refresh_token: newRefresh,
+          expires_in: 3600,
+          token_type: "bearer",
+          scope: "",
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     mockValidateKickWebhook.mockResolvedValueOnce({
@@ -351,7 +363,19 @@ describe("createKickWebhookValidationMiddleware", () => {
       accessToken: newToken,
     });
 
-    expect(fetchSpy).toHaveBeenCalledWith(
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      1,
+      "https://id.kick.com" + "/token/introspect",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        }),
+      })
+    );
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
       "https://id.kick.com" + "/oauth/token",
       expect.objectContaining({
         method: "POST",
@@ -390,16 +414,28 @@ describe("createKickWebhookValidationMiddleware", () => {
       message: "rate limit",
     });
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        access_token: "refreshed-token",
-        refresh_token: "refresh-token",
-        expires_in: 3600,
-        token_type: "bearer",
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "refreshed-token",
+          refresh_token: "refresh-token",
+          expires_in: 3600,
+          token_type: "bearer",
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -469,16 +505,28 @@ describe("createKickWebhookValidationMiddleware", () => {
       new Error("accelerate down")
     );
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        access_token: newToken,
-        refresh_token: "refresh-token",
-        expires_in: 3600,
-        token_type: "bearer",
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: newToken,
+          refresh_token: "refresh-token",
+          expires_in: 3600,
+          token_type: "bearer",
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     const bindings = {
@@ -831,14 +879,25 @@ describe("createKickWebhookValidationMiddleware", () => {
       },
     });
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        refresh_token: "new-refresh",
-        expires_in: 3600,
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          refresh_token: "new-refresh",
+          expires_in: 3600,
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     const bindings = {
@@ -919,15 +978,27 @@ describe("resolveBroadcasterAuth (internal)", () => {
     });
     mockDb.account.update.mockResolvedValueOnce(undefined);
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        access_token: "refreshed-token",
-        expires_in: 600,
-        token_type: "bearer",
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 600,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "refreshed-token",
+          expires_in: 600,
+          token_type: "bearer",
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     const bindings = {
@@ -969,7 +1040,7 @@ describe("resolveBroadcasterAuth (internal)", () => {
     expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
       tags: ["account_777"],
     });
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   test("refreshes token even when Accelerate invalidate is unavailable", async () => {
@@ -989,16 +1060,28 @@ describe("resolveBroadcasterAuth (internal)", () => {
 
     mockGetDb.mockReturnValueOnce(dbWithoutAccelerate as any);
 
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        access_token: "fresh-token",
-        refresh_token: "refresh-token",
-        expires_in: 1800,
-        token_type: "bearer",
-      }),
-    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 1800,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "fresh-token",
+          refresh_token: "refresh-token",
+          expires_in: 1800,
+          token_type: "bearer",
+        }),
+      });
     vi.stubGlobal("fetch", fetchSpy);
 
     const bindings = {
@@ -1035,7 +1118,130 @@ describe("resolveBroadcasterAuth (internal)", () => {
       where: { id: "acct-lite" },
       data: expect.objectContaining({ accessToken: "fresh-token" }),
     });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test("throws when refresh token introspection reports inactive", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-inactive",
+      accountId: "999",
+      accessToken: null,
+      refreshToken: "expired-refresh",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          active: false,
+          error: "invalid_token",
+          error_description: "Refresh token expired",
+        }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "999" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-inactive",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await expect(
+      __test.resolveBroadcasterAuth({ env: bindings } as any, result)
+    ).rejects.toThrow(
+      "Kick refresh token for account 999 is not active (Refresh token expired)"
+    );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+  });
+
+  test("continues when refresh token introspection request fails", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-introspect-fails",
+      accountId: "1000",
+      accessToken: "",
+      refreshToken: "valid-refresh",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    mockDb.account.update.mockResolvedValueOnce(undefined);
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () =>
+          JSON.stringify({
+            error: "invalid_client",
+            error_description: "Client authentication failed",
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "introspect-fallback",
+          refresh_token: "valid-refresh",
+          expires_in: 3600,
+          token_type: "bearer",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "1000" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-introspect-fails",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(auth).toEqual({
+      accountId: "1000",
+      accessToken: "introspect-fallback",
+    });
+    expect(mockDb.account.update).toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   test("extracts broadcaster id from fallback payload shape", () => {
