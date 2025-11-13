@@ -46,7 +46,7 @@ serve({
   fetch: (request) => app.fetch(request, bindings),
 });
 
-console.log(`Kick bot server listening on http://0.0.0.0:${port}`);
+console.log(`Kick bot server listening on http://localhost:${port}`);
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection", reason);
