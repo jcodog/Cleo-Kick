@@ -144,11 +144,14 @@ describe("recordError", () => {
       {
         DATABASE_URL: "postgres://example",
         LOGTAIL_SOURCE_TOKEN: "test-token",
+        LOGTAIL_ENDPOINT: "https://logs.example.com",
       } as any,
       { message: "boom", status: 502 }
     );
 
-    expect(mocks.Logtail).toHaveBeenCalledWith("test-token");
+    expect(mocks.Logtail).toHaveBeenCalledWith("test-token", {
+      endpoint: "https://logs.example.com",
+    });
     expect(mocks.logtailInstance.error).toHaveBeenCalledWith("boom", {
       context: null,
       process: "kick-bot",
@@ -172,6 +175,7 @@ describe("recordError", () => {
       {
         DATABASE_URL: "postgres://example",
         LOGTAIL_SOURCE_TOKEN: "test-token",
+        LOGTAIL_ENDPOINT: "https://logs.example.com",
       } as any,
       { message: "boom" }
     );
@@ -318,6 +322,7 @@ describe("recordError", () => {
     const env = {
       DATABASE_URL: "postgres://example",
       LOGTAIL_SOURCE_TOKEN: "token",
+      LOGTAIL_ENDPOINT: "https://logs.example.com",
     } as any;
 
     await recordError(env, { message: "first" });
@@ -341,6 +346,7 @@ describe("recordError", () => {
     const env = {
       DATABASE_URL: "postgres://example",
       LOGTAIL_SOURCE_TOKEN: "token",
+      LOGTAIL_ENDPOINT: "https://logs.example.com",
     } as any;
 
     await recordError(env, { message: "first" });
