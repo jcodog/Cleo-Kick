@@ -82,15 +82,14 @@ jobs:
       - name: Sync to /opt (preserve .env)
         run: |
           mkdir -p /opt/cleo-kick/current
-          # keep local secrets:
           sudo -n rsync -a --delete --exclude '.env' ./ /opt/cleo-kick/current/
 
-      - name: Start / reload with root PM2 (zero downtime)
+      - name: Start / reload with root PM2
         env:
           PM2_HOME: /root/.pm2
         run: |
+          PM2="/root/.bun/install/global/node_modules/pm2/bin/pm2"
           cd /opt/cleo-kick/current
-          # -n = non-interactive (fail if password would be needed)
-          sudo -n -E pm2 startOrReload ecosystem.config.cjs --update-env \
-            || sudo -n -E pm2 start ecosystem.config.cjs
-          sudo -n -E pm2 save
+          sudo -n -E "$PM2" startOrReload ecosystem.config.cjs --update-env \
+            || sudo -n -E "$PM2" start ecosystem.config.cjs
+          sudo -n -E "$PM2" save
