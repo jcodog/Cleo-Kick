@@ -1,4 +1,4 @@
-name: Publish Coverage Report
+name: Deploy Cleo Kick
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  run-coverage:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -49,8 +49,8 @@ jobs:
         with:
           path: coverage
 
-  deploy:
-    needs: build
+  deploy-coverage:
+    needs: run-coverage
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -61,7 +61,7 @@ jobs:
         uses: actions/deploy-pages@v4
 
   deploy-app:
-    needs: deploy
+    needs: deploy-coverage
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -77,10 +77,11 @@ jobs:
       # - name: Build app
       #   run: bun run build
 
-      - name: Sync to /opt (preserve .env)
+      - name: Sync to /opt (shared .env symlink)
         run: |
-          mkdir -p /opt/cleo-kick/current
-          sudo -n rsync -a --delete --exclude '.env' ./ /opt/cleo-kick/current/
+          sudo -n mkdir -p /opt/cleo-kick/{current,shared}
+          sudo -n rsync -a --delete ./ /opt/cleo-kick/current/
+          sudo -n ln -sf /opt/cleo-kick/shared/.env /opt/cleo-kick/current/.env
 
       - name: Start / reload with root PM2 (zero downtime)
         run: |
