@@ -276,7 +276,6 @@ describe("createKickWebhookValidationMiddleware", () => {
       },
       cacheStrategy: {
         ttl: 60 * 60,
-        swr: 300,
         tags: ["account_123"],
       },
     });

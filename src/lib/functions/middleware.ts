@@ -23,7 +23,6 @@ export interface KickBroadcasterAuth {
 const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 const LOG_PREFIX = "[kick-webhook-middleware]";
 const ACCOUNT_CACHE_TTL_SECONDS = 60 * 60;
-const ACCOUNT_CACHE_SWR_SECONDS = 300;
 const ACCOUNT_CACHE_TAG_PREFIX = "account";
 const ACCOUNT_CACHE_TAG_MAX_LENGTH = 64;
 
@@ -342,7 +341,6 @@ async function resolveBroadcasterAuth<
     },
     cacheStrategy: {
       ttl: ACCOUNT_CACHE_TTL_SECONDS,
-      swr: ACCOUNT_CACHE_SWR_SECONDS,
       tags: [getAccountCacheTag(broadcasterAccountId)],
     },
   });
