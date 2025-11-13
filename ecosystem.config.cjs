@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "cleo-kick",
+      name: "cleo-kick-app",
       interpreter: "/root/.bun/bin/bun",
       script: "src/server.ts",
       cwd: "/opt/cleo-kick/current",
