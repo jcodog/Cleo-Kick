@@ -35,7 +35,7 @@ const bindings: Env = {
   PORT: process.env.PORT,
   ERROR_LOG_PROCESS_NAME: process.env.ERROR_LOG_PROCESS_NAME,
   LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
-  LOGTAIL_ENDPOINT: process.env.LOCTAIL_ENDPOINT,
+  LOGTAIL_ENDPOINT: process.env.LOGTAIL_ENDPOINT,
 };
 
 const port = parsePort(process.env.PORT);
