@@ -60,15 +60,13 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-  deploy-self:
+  deploy-app:
     needs: deploy
     runs-on: self-hosted
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
 
@@ -84,7 +82,7 @@ jobs:
           mkdir -p /opt/cleo-kick/current
           sudo -n rsync -a --delete --exclude '.env' ./ /opt/cleo-kick/current/
 
-      - name: Start / reload with root PM2
+      - name: Start / reload with root PM2 (zero downtime)
         env:
           PM2_HOME: /root/.pm2
         run: |
