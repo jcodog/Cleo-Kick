@@ -57,6 +57,7 @@ function safeStringify(
 
 async function getLogtail(env: Env) {
   const token = env.LOGTAIL_SOURCE_TOKEN;
+  const endpoint = env.LOGTAIL_ENDPOINT;
   if (!token) {
     logtailClient = null;
     logtailToken = null;
@@ -69,7 +70,9 @@ async function getLogtail(env: Env) {
 
   try {
     const { Logtail } = await import("@logtail/node");
-    logtailClient = new Logtail(token);
+    logtailClient = new Logtail(token, {
+      endpoint,
+    });
     logtailToken = token;
     return logtailClient;
   } catch (error) {
