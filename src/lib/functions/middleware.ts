@@ -22,9 +22,26 @@ export interface KickBroadcasterAuth {
 
 const TOKEN_REFRESH_THRESHOLD_MS = 60_000;
 const LOG_PREFIX = "[kick-webhook-middleware]";
-const ACCOUNT_CACHE_TTL_SECONDS = 60 * 60;
+const ACCOUNT_CACHE_TTL_SECONDS = 60;
+const ACCOUNT_CACHE_TTL_MS = ACCOUNT_CACHE_TTL_SECONDS * 1_000;
 const ACCOUNT_CACHE_TAG_PREFIX = "account";
 const ACCOUNT_CACHE_TAG_MAX_LENGTH = 64;
+
+type AccountRecord = {
+  id: string;
+  accountId: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  accessTokenExpiresAt: Date | null;
+  refreshTokenExpiresAt: Date | null;
+};
+
+type CachedAccount = {
+  value: AccountRecord;
+  expiresAt: number;
+};
+
+const accountCache = new Map<string, CachedAccount>();
 
 function getAccountCacheTag(accountId: string): string {
   const sanitized = accountId.replace(/[^0-9A-Za-z_]/g, "_");
@@ -43,6 +60,12 @@ async function invalidateAccountCache(
   steps?: StepLogger
 ): Promise<void> {
   const cacheTag = getAccountCacheTag(accountId);
+  const removed = accountCache.delete(accountId);
+  if (removed) {
+    steps?.note("Cleared local account cache", {
+      broadcasterAccountId: accountId,
+    });
+  }
   if (!db.$accelerate?.invalidate) {
     steps?.note("Accelerate invalidate unavailable", { cacheTag });
     return;
@@ -167,6 +190,85 @@ function createStepLogger(prefix: string): StepLogger {
       write("•", handle, meta);
     },
   };
+}
+
+function cloneAccountRecord(account: AccountRecord): AccountRecord {
+  return {
+    ...account,
+    accessTokenExpiresAt: account.accessTokenExpiresAt
+      ? new Date(account.accessTokenExpiresAt)
+      : null,
+    refreshTokenExpiresAt: account.refreshTokenExpiresAt
+      ? new Date(account.refreshTokenExpiresAt)
+      : null,
+  };
+}
+
+function storeAccountInCache(account: AccountRecord): void {
+  accountCache.set(account.accountId, {
+    value: cloneAccountRecord(account),
+    expiresAt: Date.now() + ACCOUNT_CACHE_TTL_MS,
+  });
+}
+
+function getCachedAccount(accountId: string): AccountRecord | null {
+  const cached = accountCache.get(accountId);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    accountCache.delete(accountId);
+    return null;
+  }
+
+  return cloneAccountRecord(cached.value);
+}
+
+async function fetchAccountWithCache(
+  db: DbClient,
+  accountId: string
+): Promise<{ account: AccountRecord | null; fromCache: boolean }> {
+  const cached = getCachedAccount(accountId);
+  if (cached) {
+    return { account: cached, fromCache: true };
+  }
+
+  const record = await db.account.findFirst({
+    where: { accountId },
+    select: {
+      id: true,
+      accountId: true,
+      accessToken: true,
+      refreshToken: true,
+      accessTokenExpiresAt: true,
+      refreshTokenExpiresAt: true,
+    },
+  });
+
+  if (!record) {
+    return { account: null, fromCache: false };
+  }
+
+  const account = cloneAccountRecord(record as AccountRecord);
+  storeAccountInCache(account);
+  return { account, fromCache: false };
+}
+
+function clearAccountCacheEntries(accountId?: string): void {
+  if (typeof accountId === "string") {
+    accountCache.delete(accountId);
+    return;
+  }
+
+  accountCache.clear();
+}
+function isInvalidGrantError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.toLowerCase().includes("invalid_grant");
 }
 
 /**
@@ -329,27 +431,23 @@ async function resolveBroadcasterAuth<
   const lookupStep = steps?.start("Lookup broadcaster account", {
     broadcasterAccountId,
   });
-  const account = await db.account.findFirst({
-    where: { accountId: broadcasterAccountId },
-    select: {
-      id: true,
-      accountId: true,
-      accessToken: true,
-      refreshToken: true,
-      accessTokenExpiresAt: true,
-      refreshTokenExpiresAt: true,
-    },
-    cacheStrategy: {
-      ttl: ACCOUNT_CACHE_TTL_SECONDS,
-      tags: [getAccountCacheTag(broadcasterAccountId)],
-    },
-  });
-
-  console.log("[account-lookup-result]", JSON.stringify(account));
+  const { account: fetchedAccount, fromCache } = await fetchAccountWithCache(
+    db,
+    broadcasterAccountId
+  );
+  console.log(
+    "[account-lookup-result]",
+    JSON.stringify({ account: fetchedAccount, fromCache })
+  );
 
   if (steps && lookupStep) {
-    steps.success(lookupStep, { found: Boolean(account) });
+    steps.success(lookupStep, {
+      found: Boolean(fetchedAccount),
+      cacheHit: fromCache,
+    });
   }
+
+  let account = fetchedAccount;
 
   if (!account) {
     steps?.note("Broadcaster account not registered", {
@@ -445,11 +543,47 @@ async function resolveBroadcasterAuth<
       });
     }
 
-    const refreshed = await refreshAccessToken({
-      refreshToken: account.refreshToken,
-      clientId,
-      clientSecret,
-    });
+    let refreshed: RESTPostOAuth2RefreshTokenResult;
+    try {
+      refreshed = await refreshAccessToken({
+        refreshToken: account.refreshToken,
+        clientId,
+        clientSecret,
+      });
+    } catch (error) {
+      if (steps && refreshStep) {
+        steps.fail(refreshStep, error);
+      }
+
+      if (isInvalidGrantError(error)) {
+        steps?.note("Clearing invalid broadcaster tokens", {
+          broadcasterAccountId,
+        });
+
+        await db.account.update({
+          where: { id: account.id },
+          data: {
+            accessToken: null,
+            accessTokenExpiresAt: null,
+            refreshToken: null,
+            refreshTokenExpiresAt: null,
+          },
+        });
+
+        account.accessToken = null;
+        account.refreshToken = null;
+        account.accessTokenExpiresAt = null;
+        account.refreshTokenExpiresAt = null;
+
+        await invalidateAccountCache(db, account.accountId, steps);
+
+        throw new Error(
+          `Kick refresh token for account ${account.accountId} is invalid or expired`
+        );
+      }
+
+      throw error;
+    }
 
     const refreshedExpiresAt = new Date(
       Date.now() + refreshed.expires_in * 1000
@@ -469,6 +603,7 @@ async function resolveBroadcasterAuth<
     account.accessTokenExpiresAt = refreshedExpiresAt;
 
     await invalidateAccountCache(db, account.accountId, steps);
+    storeAccountInCache(account);
 
     if (steps && refreshStep) {
       steps.success(refreshStep, {
@@ -696,4 +831,5 @@ export const __test = {
   validateRefreshToken,
   extractBroadcasterAccountId,
   getAccountCacheTag,
+  clearAccountCacheEntries,
 } as const;

@@ -88,6 +88,7 @@ afterEach(() => {
   mockDb.$accelerate.invalidateAll.mockReset();
   mockGetDb.mockReset();
   mockValidateKickWebhook.mockReset();
+  __test.clearAccountCacheEntries();
 });
 
 type TestEnv = {
@@ -95,6 +96,43 @@ type TestEnv = {
   Variables: {
     kickWebhook: KickWebhookValidationResult;
     kickBroadcasterAuth: KickBroadcasterAuth | null;
+  };
+};
+
+type StepEvent =
+  | { type: "start" | "note"; label: string; meta?: Record<string, unknown> }
+  | { type: "success"; label: string; meta?: Record<string, unknown> }
+  | {
+      type: "fail";
+      label: string;
+      error: unknown;
+      meta?: Record<string, unknown>;
+    };
+
+const createMockSteps = () => {
+  let counter = 0;
+  const events: StepEvent[] = [];
+
+  return {
+    events,
+    start: vi.fn((label: string, meta?: Record<string, unknown>) => {
+      events.push({ type: "start", label, meta });
+      return { id: ++counter, label };
+    }),
+    success: vi.fn(
+      (
+        handle: { id: number; label: string },
+        meta?: Record<string, unknown>
+      ) => {
+        events.push({ type: "success", label: handle.label, meta });
+      }
+    ),
+    fail: vi.fn((handle: { id: number; label: string }, error: unknown) => {
+      events.push({ type: "fail", label: handle.label, error });
+    }),
+    note: vi.fn((label: string, meta?: Record<string, unknown>) => {
+      events.push({ type: "note", label, meta });
+    }),
   };
 };
 
@@ -225,7 +263,7 @@ describe("createKickWebhookValidationMiddleware", () => {
       accessToken: "valid-token",
       refreshToken: "refresh-token",
       accessTokenExpiresAt: new Date(Date.now() + 120_000),
-      refreshTokenExpiresAt: null,
+      refreshTokenExpiresAt: new Date(Date.now() + 3_600_000),
     });
 
     mockValidateKickWebhook.mockResolvedValueOnce({
@@ -273,10 +311,6 @@ describe("createKickWebhookValidationMiddleware", () => {
         refreshToken: true,
         accessTokenExpiresAt: true,
         refreshTokenExpiresAt: true,
-      },
-      cacheStrategy: {
-        ttl: 60 * 60,
-        tags: ["account_123"],
       },
     });
     expect(mockDb.account.update).not.toHaveBeenCalled();
@@ -929,9 +963,304 @@ describe("createKickWebhookValidationMiddleware", () => {
 
     errorSpy.mockRestore();
   });
+
+  test("clears stored tokens when refresh token is invalid", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-7",
+      accountId: "678",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 10_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    mockValidateKickWebhook.mockResolvedValueOnce({
+      knownType: true,
+      eventType: "channel.followed",
+      messageId: "msg-invalid-grant",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      eventVersion: "1",
+      rawBody: "{}",
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "678" },
+      },
+    });
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () =>
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "Refresh token revoked",
+          }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const { app } = buildApp({ bindings, recordError });
+
+    const response = await app.request(
+      "/",
+      { method: "POST", body: "{}" },
+      bindings
+    );
+
+    expect(response.status).toBe(500);
+    await response.json();
+    expect(recordError).toHaveBeenCalledWith(
+      bindings,
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "refresh token for account 678 is invalid"
+        ),
+      })
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-7" },
+      data: {
+        accessToken: null,
+        accessTokenExpiresAt: null,
+        refreshToken: null,
+        refreshTokenExpiresAt: null,
+      },
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account_678"],
+    });
+  });
 });
 
 describe("resolveBroadcasterAuth (internal)", () => {
+  test("uses cached account within ttl without re-querying", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    __test.clearAccountCacheEntries();
+
+    let currentTime = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-cache-hit",
+      accountId: "cache-hit",
+      accessToken: "cached-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(currentTime + 120_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "cache-hit" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-cache-hit",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const first = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(first).toEqual({
+      accountId: "cache-hit",
+      accessToken: "cached-token",
+    });
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    mockDb.account.findFirst.mockClear();
+    mockDb.account.findFirst.mockImplementation(() => {
+      throw new Error("database should not be queried for cached account");
+    });
+
+    currentTime += 5_000;
+
+    const second = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(second).toEqual(first);
+    expect(mockDb.account.findFirst).not.toHaveBeenCalled();
+
+    mockDb.account.findFirst.mockReset();
+    nowSpy.mockRestore();
+  });
+
+  test("re-queries database when cache entry expires", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    __test.clearAccountCacheEntries();
+
+    let currentTime = 10_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-cache-expire",
+      accountId: "cache-expire",
+      accessToken: "first-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(currentTime + 120_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "cache-expire" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-cache-expire",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const first = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+    expect(first).toEqual({
+      accountId: "cache-expire",
+      accessToken: "first-token",
+    });
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    mockDb.account.findFirst.mockReset();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-cache-expire",
+      accountId: "cache-expire",
+      accessToken: "second-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(currentTime + 180_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    currentTime += 60_000 + 1;
+
+    const second = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(second).toEqual({
+      accountId: "cache-expire",
+      accessToken: "second-token",
+    });
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    mockDb.account.findFirst.mockReset();
+    nowSpy.mockRestore();
+  });
+
+  test("clearAccountCacheEntries removes specific cache entry", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    __test.clearAccountCacheEntries();
+
+    let currentTime = 50_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-cache-clear",
+      accountId: "cache-clear",
+      accessToken: "cached-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(currentTime + 120_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "cache-clear" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-cache-clear",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await __test.resolveBroadcasterAuth({ env: bindings } as any, result);
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    __test.clearAccountCacheEntries("cache-clear");
+
+    mockDb.account.findFirst.mockReset();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-cache-clear",
+      accountId: "cache-clear",
+      accessToken: "fresh-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(currentTime + 180_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const fresh = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result
+    );
+
+    expect(fresh).toEqual({
+      accountId: "cache-clear",
+      accessToken: "fresh-token",
+    });
+    expect(mockDb.account.findFirst).toHaveBeenCalledTimes(1);
+
+    mockDb.account.findFirst.mockReset();
+    nowSpy.mockRestore();
+  });
   test("returns null when broadcaster id is missing without a step logger", async () => {
     const result = {
       knownType: true,
@@ -973,7 +1302,7 @@ describe("resolveBroadcasterAuth (internal)", () => {
       accountId: "777",
       accessToken: null,
       refreshToken: "persisted-refresh",
-      accessTokenExpiresAt: undefined,
+      accessTokenExpiresAt: null,
       refreshTokenExpiresAt: null,
     });
     mockDb.account.update.mockResolvedValueOnce(undefined);
@@ -1121,6 +1450,167 @@ describe("resolveBroadcasterAuth (internal)", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  test("records introspection metadata without token type", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-meta",
+      accountId: "meta",
+      accessToken: null,
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+    mockDb.account.update.mockResolvedValueOnce(undefined);
+
+    const exp = Math.floor(Date.now() / 1000) + 900;
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            exp,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "fresh-token",
+          refresh_token: "refresh-token",
+          expires_in: 900,
+          token_type: "bearer",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const steps = createMockSteps();
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "meta" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-meta",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result,
+      steps
+    );
+
+    expect(auth).toEqual({
+      accountId: "meta",
+      accessToken: "fresh-token",
+    });
+
+    const validationSuccess = steps.events.find(
+      (event) =>
+        event.type === "success" && event.label === "Validate refresh token"
+    );
+
+    expect(validationSuccess).toBeDefined();
+    expect(validationSuccess?.meta).toMatchObject({ active: true });
+    expect(validationSuccess?.meta?.expiresAt).toBeInstanceOf(Date);
+    expect(validationSuccess?.meta).not.toHaveProperty("tokenType");
+  });
+
+  test("skips local cache cleared note when entry already missing", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    __test.clearAccountCacheEntries();
+
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-no-cache",
+      accountId: "no-cache",
+      accessToken: null,
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    mockDb.account.update.mockImplementationOnce(async () => {
+      __test.clearAccountCacheEntries("no-cache");
+      return undefined;
+    });
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 1800,
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "fresh-token",
+          refresh_token: "refresh-token",
+          expires_in: 1800,
+          token_type: "bearer",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const steps = createMockSteps();
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "no-cache" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-no-cache",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    const auth = await __test.resolveBroadcasterAuth(
+      { env: bindings } as any,
+      result,
+      steps
+    );
+
+    expect(auth).toEqual({ accountId: "no-cache", accessToken: "fresh-token" });
+    const clearedNote = steps.events.find(
+      (event) =>
+        event.type === "note" && event.label === "Cleared local account cache"
+    );
+    expect(clearedNote).toBeUndefined();
+  });
+
   test("throws when refresh token introspection reports inactive", async () => {
     mockGetDb.mockReturnValue(mockDb);
     mockDb.account.findFirst.mockResolvedValueOnce({
@@ -1172,6 +1662,239 @@ describe("resolveBroadcasterAuth (internal)", () => {
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(mockDb.account.update).not.toHaveBeenCalled();
+  });
+
+  test("reports introspection error reason when description is missing", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-error-reason",
+      accountId: "error-only",
+      accessToken: null,
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          active: false,
+          error: "invalid_refresh",
+        }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "error-only" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-error-only",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await expect(
+      __test.resolveBroadcasterAuth({ env: bindings } as any, result)
+    ).rejects.toThrow(
+      "Kick refresh token for account error-only is not active (invalid_refresh)"
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+  });
+
+  test("defaults inactive reason when introspection omits error details", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-error-default",
+      accountId: "no-detail",
+      accessToken: null,
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ active: false }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "no-detail" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-no-detail",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await expect(
+      __test.resolveBroadcasterAuth({ env: bindings } as any, result)
+    ).rejects.toThrow(
+      "Kick refresh token for account no-detail is not active (inactive)"
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+  });
+
+  test("clears tokens when refresh request fails with invalid_grant", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-invalid-grant",
+      accountId: "1010",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 5_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () =>
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "Refresh token revoked",
+          }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "1010" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-invalid-grant",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await expect(
+      __test.resolveBroadcasterAuth({ env: bindings } as any, result)
+    ).rejects.toThrow(
+      "Kick refresh token for account 1010 is invalid or expired"
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(mockDb.account.update).toHaveBeenCalledWith({
+      where: { id: "acct-invalid-grant" },
+      data: {
+        accessToken: null,
+        accessTokenExpiresAt: null,
+        refreshToken: null,
+        refreshTokenExpiresAt: null,
+      },
+    });
+    expect(mockDb.$accelerate.invalidate).toHaveBeenCalledWith({
+      tags: ["account_1010"],
+    });
+  });
+
+  test("propagates non-error refresh failures without clearing tokens", async () => {
+    mockGetDb.mockReturnValue(mockDb);
+    __test.clearAccountCacheEntries();
+    mockDb.account.findFirst.mockResolvedValueOnce({
+      id: "acct-non-error",
+      accountId: "non-error",
+      accessToken: "stale-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: new Date(Date.now() - 5_000),
+      refreshTokenExpiresAt: null,
+    });
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            active: true,
+            token_type: "refresh_token",
+            exp: Math.floor(Date.now() / 1000) + 600,
+          }),
+      })
+      .mockRejectedValueOnce("network-unreachable");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bindings = {
+      DATABASE_URL: "postgres://example",
+      KICK_CLIENT_ID: "client",
+      KICK_CLIENT_SECRET: "secret",
+    } satisfies TestEnv["Bindings"];
+
+    const result = {
+      knownType: true,
+      payload: {
+        eventType: "channel.followed",
+        eventVersion: "1",
+        broadcaster: { user_id: "non-error" },
+      },
+      eventType: "channel.followed",
+      eventVersion: "1",
+      messageId: "internal-non-error",
+      timestamp: new Date().toISOString(),
+      signature: "sig",
+      rawBody: "{}",
+    } as unknown as KickWebhookValidationResult;
+
+    await expect(
+      __test.resolveBroadcasterAuth({ env: bindings } as any, result)
+    ).rejects.toEqual("network-unreachable");
+
+    expect(mockDb.account.update).not.toHaveBeenCalled();
+    expect(mockDb.$accelerate.invalidate).not.toHaveBeenCalled();
   });
 
   test("continues when refresh token introspection request fails", async () => {
@@ -1280,6 +2003,207 @@ describe("resolveBroadcasterAuth (internal)", () => {
     } as unknown as KickWebhookValidationResult;
 
     expect(__test.extractBroadcasterAccountId(result)).toBeNull();
+  });
+});
+
+describe("validateRefreshToken helper", () => {
+  const baseOptions = {
+    refreshToken: "refresh-token",
+    clientId: "client",
+    clientSecret: "secret",
+  } as const;
+
+  test("surfaces empty response detail when body is blank", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection failed (500): <empty response body>"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports <no response body> when payload cannot be read", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => {
+        throw new Error("boom");
+      },
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection failed (401): <no response body>"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("throws when introspection succeeds with empty body", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection returned an empty response"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("throws when introspection returns malformed JSON", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "{",
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection returned malformed JSON"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("throws when introspection payload is missing active flag", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ token_type: "refresh_token" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection returned unexpected payload"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses error field when description is missing", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({ error: "invalid_token" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection failed (403): invalid_token"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to raw payload when JSON parsing fails", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => "service-unavailable",
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      "Kick token introspection failed (503): service-unavailable"
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns parsed payload when introspection succeeds", async () => {
+    const payload = {
+      active: true,
+      token_type: "refresh_token",
+      scope: "chat:read",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    } satisfies Record<string, unknown>;
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(payload),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await __test.validateRefreshToken(baseOptions);
+
+    expect(result).toEqual(payload);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://id.kick.com" + "/token/introspect",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic\s+/),
+        }),
+        body: expect.stringContaining("token=refresh-token"),
+      })
+    );
+  });
+
+  test("falls back to Buffer when btoa is unavailable", async () => {
+    const payload = { active: true } satisfies Record<string, unknown>;
+    vi.stubGlobal("btoa", undefined);
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(payload),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await __test.validateRefreshToken(baseOptions);
+
+    expect(result).toEqual(payload);
+    const [, request] = fetchSpy.mock.calls[0];
+    expect(request?.headers?.Authorization).toBe(
+      `Basic ${Buffer.from("client:secret", "utf8").toString("base64")}`
+    );
+  });
+
+  test("omits authorization header when credentials cannot be encoded", async () => {
+    const payload = { active: true } satisfies Record<string, unknown>;
+    vi.stubGlobal("btoa", undefined);
+    vi.stubGlobal("Buffer", undefined);
+
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(payload),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await __test.validateRefreshToken(baseOptions);
+
+    expect(result).toEqual(payload);
+    const [, request] = fetchSpy.mock.calls[0];
+    expect(request?.headers?.Authorization).toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://id.kick.com" + "/token/introspect",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        }),
+        body: expect.stringContaining("token=refresh-token"),
+      })
+    );
+  });
+
+  test("falls back to raw payload when error fields are not strings", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 418,
+      text: async () => JSON.stringify({ error: 123 }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(__test.validateRefreshToken(baseOptions)).rejects.toThrow(
+      'Kick token introspection failed (418): {"error":123}'
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
