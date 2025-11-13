@@ -61,7 +61,6 @@ jobs:
         uses: actions/deploy-pages@v4
 
   deploy-self:
-    # runs on your VPS self-hosted runner (configured under user "cleo")
     needs: deploy
     runs-on: self-hosted
     steps:
@@ -76,20 +75,22 @@ jobs:
       - name: Install deps (Bun)
         run: bun install --frozen-lockfile
 
-      # If you build a production bundle, uncomment:
+      # If you build, do it here:
       # - name: Build app
       #   run: bun run build
 
-      - name: Sync code to /opt (root path)
+      - name: Sync to /opt (preserve .env)
         run: |
           mkdir -p /opt/cleo-kick/current
-          sudo rsync -a --delete ./ /opt/cleo-kick/current/
+          # keep local secrets:
+          sudo -n rsync -a --delete --exclude '.env' ./ /opt/cleo-kick/current/
 
       - name: Start / reload with root PM2 (zero downtime)
         env:
           PM2_HOME: /root/.pm2
         run: |
           cd /opt/cleo-kick/current
-          # start or hot-reload under root's PM2
-          sudo -E pm2 startOrReload ecosystem.config.cjs --update-env || sudo -E pm2 start ecosystem.config.cjs
-          sudo -E pm2 save
+          # -n = non-interactive (fail if password would be needed)
+          sudo -n -E pm2 startOrReload ecosystem.config.cjs --update-env \
+            || sudo -n -E pm2 start ecosystem.config.cjs
+          sudo -n -E pm2 save

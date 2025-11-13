@@ -9,3 +9,4 @@ priv_key.txt
 pub_key_record.txt
 priv_key.pem
 coverage/
+src/prisma/
