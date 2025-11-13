@@ -60,22 +60,36 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-  run-deploy-script:
+  deploy-self:
+    # runs on your VPS self-hosted runner (configured under user "cleo")
     needs: deploy
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - name: Deploy application to VPS
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          script_stop: "true"
-          script: |
-            export PATH="$HOME/.bun/bin:$PATH"
-            cd ~/apps/cleo-kick/current || exit 1
-            git pull origin main
-            bun install
-            pm2 reload cleo-kick || pm2 start ecosystem.config.cjs
-            pm2 save
+          bun-version: latest
+
+      - name: Install deps (Bun)
+        run: bun install --frozen-lockfile
+
+      # If you build a production bundle, uncomment:
+      # - name: Build app
+      #   run: bun run build
+
+      - name: Sync code to /opt (root path)
+        run: |
+          mkdir -p /opt/cleo-kick/current
+          sudo rsync -a --delete ./ /opt/cleo-kick/current/
+
+      - name: Start / reload with root PM2 (zero downtime)
+        env:
+          PM2_HOME: /root/.pm2
+        run: |
+          cd /opt/cleo-kick/current
+          # start or hot-reload under root's PM2
+          sudo -E pm2 startOrReload ecosystem.config.cjs --update-env || sudo -E pm2 start ecosystem.config.cjs
+          sudo -E pm2 save
