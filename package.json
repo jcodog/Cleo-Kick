@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bunx wrangler dev",
-    "deploy": "bunx wrangler deploy",
+    "deploy": "bun run src/server.ts",
     "start": "bun run src/server.ts",
     "typecheck": "bun run tsc --noEmit",
     "test": "bunx vitest run",

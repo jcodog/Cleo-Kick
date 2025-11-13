@@ -203,4 +203,214 @@ describe("recordError", () => {
       expect.any(Error)
     );
   });
+
+  test("serialises complex contexts safely", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    await recordError(env, {
+      message: "boom",
+      context: {
+        nested: { error: new Error("bad") },
+        value: BigInt(42),
+        filler: "x".repeat(20_000),
+      },
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
+    const contextString = createArgs.data.context as string;
+    expect(contextString).toContain('"value": 42');
+    expect(contextString).toContain('"name": "Error"');
+    expect(contextString.includes("…")).toBe(true);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("stringifies non-serialisable contexts with fallbacks", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    const circular: Record<string, unknown> & { self?: unknown } = {};
+    circular.self = circular;
+
+    await recordError(env, {
+      message: "loop",
+      context: circular,
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
+    const contextString = createArgs.data.context as string;
+    expect(contextString).toContain("Converting circular structure to JSON");
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("treats custom toJSON returning undefined as empty context", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    await recordError(env, {
+      message: "void",
+      context: {
+        toJSON() {
+          return undefined;
+        },
+      },
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
+    expect(createArgs.data.context).toBe("{}");
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("stores stack traces and normalises non-numeric statuses", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    await recordError(env, {
+      message: "boom",
+      status: "500" as unknown as number,
+      stack: "stack-trace",
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
+    expect(createArgs.data.status).toBeNull();
+    expect(createArgs.data.stackTrace).toBe("stack-trace");
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("logs Logtail initialisation failures only once", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.Logtail.mockImplementation(() => {
+      throw new Error("logtail init failed");
+    });
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+      LOGTAIL_SOURCE_TOKEN: "token",
+    } as any;
+
+    await recordError(env, { message: "first" });
+    await recordError(env, { message: "second" });
+
+    const initFailures = errorSpy.mock.calls.filter(
+      ([message]) => message === "Failed to initialise Logtail client"
+    );
+    expect(initFailures).toHaveLength(1);
+    expect(mocks.Logtail).toHaveBeenCalledTimes(2);
+    expect(mocks.logtailInstance.error).not.toHaveBeenCalled();
+  });
+
+  test("reuses existing Logtail client when token matches", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+      LOGTAIL_SOURCE_TOKEN: "token",
+    } as any;
+
+    await recordError(env, { message: "first" });
+    await recordError(env, { message: "second", context: { ok: true } });
+
+    expect(mocks.Logtail).toHaveBeenCalledTimes(1);
+    expect(mocks.logtailInstance.error).toHaveBeenCalledTimes(2);
+    expect(mocks.logtailInstance.error).toHaveBeenLastCalledWith("second", {
+      status: null,
+      process: "kick-bot",
+      timestamp: expect.any(String),
+      context: { ok: true },
+    });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("falls back to error string when JSON.stringify throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const realStringify = JSON.stringify;
+    const stringifySpy = vi
+      .spyOn(JSON, "stringify")
+      .mockImplementationOnce(() => {
+        throw new TypeError("unexpected failure");
+      })
+      .mockImplementation((...args) => realStringify.call(JSON, ...args));
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    await recordError(env, {
+      message: "boom",
+      context: { trigger: "stringify-error" },
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
+    expect(createArgs.data.context).toBe("TypeError: unexpected failure");
+    expect(stringifySpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  test("falls back to original value when thrown error is undefined", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const realStringify = JSON.stringify;
+    vi.spyOn(JSON, "stringify")
+      .mockImplementationOnce(() => {
+        throw undefined;
+      })
+      .mockImplementation((...args) => realStringify.call(JSON, ...args));
+
+    const { recordError } = await import(
+      "../src/lib/functions/errors/logError"
+    );
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+    } as any;
+
+    const context = { source: "undefined-error" };
+    await recordError(env, {
+      message: "boom",
+      context,
+    });
+
+    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
+    expect(createArgs.data.context).toBe(String(context));
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
 });

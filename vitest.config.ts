@@ -13,6 +13,7 @@ export default defineConfig({
         "src/prisma/**/*.ts",
         "src/lib/app/types.ts",
         "src/lib/config/env.ts",
+        "src/server.ts",
       ],
       thresholds: {
         statements: 100,

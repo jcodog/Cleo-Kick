@@ -85,4 +85,10 @@ describe("getDb", () => {
     expect(first).not.toBe(second);
     expect(prismaMocks.PrismaClient).toHaveBeenCalledTimes(2);
   });
+
+  test("throws when database url is missing", () => {
+    expect(() => getDb("" as string)).toThrow(
+      "Missing DATABASE_URL configuration"
+    );
+  });
 });

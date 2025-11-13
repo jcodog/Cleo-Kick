@@ -445,6 +445,184 @@ describe("index routes", () => {
     expect(typeof timestamp).toBe("string");
   });
 
+  test("POST /debug/test-email rejects invalid JSON payloads", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: "{not-json}",
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid JSON payload" });
+    expect(mockNotifyDeveloper).not.toHaveBeenCalled();
+  });
+
+  test("POST /debug/test-email falls back to default message and merges context", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: "   ",
+          context: { source: "vitest" },
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    expect(mockNotifyDeveloper).toHaveBeenCalledTimes(1);
+    const [, entry] = mockNotifyDeveloper.mock.calls[0];
+    expect(entry).toMatchObject({
+      message: "Kick bot test notification",
+      context: {
+        trigger: "debug/test-email",
+        source: "vitest",
+      },
+    });
+  });
+
+  test("POST /debug/test-email ignores non-object context payloads", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: "Ping",
+          context: "ignore-me",
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    expect(mockNotifyDeveloper).toHaveBeenCalledTimes(1);
+    const [, entry] = mockNotifyDeveloper.mock.calls[0];
+    expect(entry).toMatchObject({
+      message: "Ping",
+      context: {
+        trigger: "debug/test-email",
+      },
+    });
+  });
+
+  test("POST /debug/test-email treats null context as empty", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: "Ping",
+          context: null,
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    const [, entry] = mockNotifyDeveloper.mock.calls[0];
+    expect(entry).toMatchObject({
+      context: {
+        trigger: "debug/test-email",
+      },
+    });
+  });
+
+  test("POST /debug/test-email skips JSON parsing when header missing", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: "Manual payload without json header",
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    const [, entry] = mockNotifyDeveloper.mock.calls[0];
+    expect(entry).toMatchObject({
+      message: "Kick bot test notification",
+    });
+  });
+
+  test("POST /debug/test-email defaults message when missing", async () => {
+    const app = await loadApp();
+    mockNotifyDeveloper.mockResolvedValueOnce(undefined);
+
+    const env = {
+      DEVELOPER_EMAIL: "dev@example.com",
+      MAILCHANNELS_API_KEY: "key",
+    } satisfies Partial<Env>;
+
+    const response = await app.request(
+      "/debug/test-email",
+      {
+        method: "POST",
+        body: JSON.stringify({ context: { why: "missing-message" } }),
+        headers: { "Content-Type": "application/json" },
+      },
+      env as Env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "sent" });
+    expect(mockNotifyDeveloper).toHaveBeenCalledTimes(1);
+    const [, entry] = mockNotifyDeveloper.mock.calls[0];
+    expect(entry).toMatchObject({
+      message: "Kick bot test notification",
+      context: {
+        trigger: "debug/test-email",
+        why: "missing-message",
+      },
+    });
+  });
+
   test("default index export initialises the app", async () => {
     const module = await import("../src/index");
     expect(module.default).toBeDefined();
