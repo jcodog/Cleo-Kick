@@ -125,7 +125,7 @@ model ErrorLog {
   id         String   @id @default(cuid())
   process    String
   message    String
-  stackTrace String
+  stackTrace String?
   timestamp  DateTime @default(now())
 }
 
