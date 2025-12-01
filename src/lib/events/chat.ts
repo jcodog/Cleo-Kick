@@ -33,13 +33,21 @@ export const chatHandler = async (
         username || "<unknown>"
       }`
     );
-    sendOverlayMessage({
+    const overlayPayload = sendOverlayMessage({
       roomId,
       author: username,
       text: content,
       platform: "kick",
       avatarUrl,
     });
+
+    if (!overlayPayload) {
+      console.debug(
+        `[Chat] Overlay socket not ready; skipped room=${roomId} sender=${
+          username || "<unknown>"
+        }`
+      );
+    }
   } else {
     console.debug(
       `[Chat] Ignoring blank message broadcaster=${event.broadcaster.user_id}`

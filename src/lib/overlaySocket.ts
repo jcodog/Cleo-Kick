@@ -1,6 +1,6 @@
-import { client } from "./jstack";
+import type { Server as SocketIOServer, Socket } from "socket.io";
 
-type OverlayMessage = {
+export type OverlayMessage = {
   roomId: string;
   author: string;
   text: string;
@@ -8,125 +8,157 @@ type OverlayMessage = {
   avatarUrl?: string;
 };
 
-type OverlaySocket = ReturnType<typeof client.overlays.chat.$ws>;
+export type OverlayMessageInput = {
+  roomId: string;
+  text: string;
+  author?: string;
+  platform?: string;
+  avatarUrl?: string;
+};
 
-let socket: OverlaySocket | null = null;
-let socketReady = false;
-let webSocketWarningLogged = false;
-const pendingMessages: OverlayMessage[] = [];
+let overlayServer: SocketIOServer | null = null;
+const socketRooms = new Map<string, string>();
+const OVERLAY_ROOM_PREFIX = "overlay-chat-";
+let serverNotReadyWarningLogged = false;
 
-const missingWebSocketWarning =
-  "[OverlaySocket] WebSocket API is not available in this environment. Overlay messages will be skipped.";
+const SERVER_NOT_READY_WARNING =
+  "[OverlaySocket] Socket.IO server is not ready; overlay messages will be dropped";
 
-function getSocket(): OverlaySocket | null {
-  if (socket) {
-    return socket;
+const trimToOptional = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const text = value.trim();
+  return text.length > 0 ? text : undefined;
+};
+
+const normalizeRoomId = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    value = value[0];
+  }
+  return typeof value === "string" ? value.trim() : "";
+};
+
+export const formatOverlayRoomId = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith(OVERLAY_ROOM_PREFIX)
+    ? trimmed
+    : `${OVERLAY_ROOM_PREFIX}${trimmed}`;
+};
+
+const coerceText = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  return String(value ?? "").trim();
+};
+
+const emitSocketError = (socket: Socket, message: string) => {
+  socket.emit("server:error", { message });
+};
+
+function handleSocketConnection(socket: Socket) {
+  const roomId = normalizeRoomId(socket.handshake.query.roomId);
+  if (!roomId) {
+    emitSocketError(socket, "roomId query parameter is required");
+    socket.disconnect(true);
+    return;
   }
 
-  if (typeof globalThis.WebSocket === "undefined") {
-    if (!webSocketWarningLogged) {
-      console.warn(missingWebSocketWarning);
-      webSocketWarningLogged = true;
+  socketRooms.set(socket.id, roomId);
+  socket.join(roomId);
+  socket.emit("server:ack", { type: "join", roomId });
+
+  socket.on("chat:send", (payload?: Partial<OverlayMessageInput>) => {
+    try {
+      const text = coerceText(payload?.text).trim();
+      if (!text) {
+        emitSocketError(socket, "text is required");
+        return;
+      }
+
+      const author = coerceText(payload?.author ?? socket.id) || socket.id;
+
+      sendOverlayMessage({
+        roomId,
+        text,
+        author,
+        platform: trimToOptional(payload?.platform),
+        avatarUrl: trimToOptional(payload?.avatarUrl),
+      });
+    } catch (error) {
+      emitSocketError(
+        socket,
+        error instanceof Error
+          ? error.message
+          : "Failed to dispatch chat message"
+      );
+    }
+  });
+
+  socket.on("disconnect", () => {
+    socketRooms.delete(socket.id);
+  });
+}
+
+export function initializeOverlaySocketServer(server: SocketIOServer): void {
+  overlayServer = server;
+  serverNotReadyWarningLogged = false;
+  socketRooms.clear();
+  overlayServer.on("connection", handleSocketConnection);
+}
+
+export function isOverlaySocketServerReady(): boolean {
+  return overlayServer !== null;
+}
+
+export function sendOverlayMessage(
+  message: OverlayMessageInput
+): OverlayMessage | null {
+  if (!overlayServer) {
+    if (!serverNotReadyWarningLogged) {
+      console.warn(SERVER_NOT_READY_WARNING);
+      serverNotReadyWarningLogged = true;
     }
     return null;
   }
 
-  console.log("[OverlaySocket] Opening overlays chat WebSocket connection");
-  socket = client.overlays.chat.$ws();
-  socketReady = false;
+  const roomId = message.roomId?.trim();
+  const text = message.text?.trim();
 
-  socket.on("onConnect", () => {
-    console.log(
-      `[OverlaySocket] WebSocket connected; flushing ${pendingMessages.length} buffered message(s)`
-    );
-    socketReady = true;
-    flushPendingMessages();
-  });
-
-  socket.on("onError", (error: unknown) => {
-    console.error("[OverlaySocket] WebSocket error", error);
-    socketReady = false;
-  });
-
-  return socket;
-}
-
-function bufferMessage(msg: OverlayMessage) {
-  pendingMessages.push(msg);
-  console.debug(
-    `[OverlaySocket] Buffering overlay message room=${msg.roomId} reason=waiting-for-connection queueSize=${pendingMessages.length}`
-  );
-}
-
-function emitOverlayMessage(
-  target: OverlaySocket,
-  msg: OverlayMessage
-): boolean {
-  console.debug(
-    `[OverlaySocket] Emitting overlay message room=${msg.roomId} author=${msg.author}`
-  );
-  const sent = target.emit("message", {
-    roomId: msg.roomId,
-    author: msg.author,
-    text: msg.text,
-    platform: msg.platform,
-    avatarUrl: msg.avatarUrl,
-  });
-
-  if (!sent) {
+  if (!roomId || !text) {
     console.warn(
-      `[OverlaySocket] Socket not ready, message buffered room=${msg.roomId}`
+      "[OverlaySocket] Missing roomId or text; overlay message was not dispatched",
+      { roomId }
     );
-    socketReady = false;
+    return null;
   }
 
-  return sent;
+  const author = (message.author ?? "server").toString().trim() || "server";
+
+  const payload: OverlayMessage = {
+    roomId,
+    author,
+    text,
+    platform: trimToOptional(message.platform),
+    avatarUrl: trimToOptional(message.avatarUrl),
+  };
+
+  overlayServer.to(roomId).emit("chat:message", payload);
+  return payload;
 }
 
-function flushPendingMessages() {
-  const activeSocket = socket;
-  if (!activeSocket || !socketReady) {
-    return;
-  }
-
-  while (pendingMessages.length > 0) {
-    const next = pendingMessages.shift()!;
-    const sent = emitOverlayMessage(activeSocket, next);
-    if (!sent) {
-      pendingMessages.unshift(next);
-      break;
-    }
-  }
-}
-
-export function sendOverlayMessage(msg: OverlayMessage) {
-  const activeSocket = getSocket();
-  if (!activeSocket) {
-    console.debug(
-      `[OverlaySocket] Skipping emit room=${msg.roomId} reason=no-socket`
-    );
-    return;
-  }
-
-  if (!socketReady) {
-    bufferMessage(msg);
-    return;
-  }
-
-  if (!emitOverlayMessage(activeSocket, msg)) {
-    pendingMessages.unshift(msg);
-  }
-}
-
-// Internal helpers exposed solely for tests to reset and probe socket state.
 export const __overlaySocketInternals = {
-  resetState() {
-    socket = null;
-    socketReady = false;
-    webSocketWarningLogged = false;
-    pendingMessages.length = 0;
+  reset() {
+    overlayServer = null;
+    socketRooms.clear();
+    serverNotReadyWarningLogged = false;
   },
-  flushPendingMessagesForTests() {
-    flushPendingMessages();
+  getSocketRooms() {
+    return new Map(socketRooms);
   },
+  handleSocketConnection,
 };

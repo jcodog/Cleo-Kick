@@ -20,6 +20,8 @@ export interface Env {
   readonly KICK_CLIENT_ID?: string;
   readonly KICK_CLIENT_SECRET?: string;
   readonly PORT?: string;
+  readonly HOST?: string;
+  readonly CORS_ORIGIN?: string;
   readonly ERROR_LOG_PROCESS_NAME?: string;
   readonly LOGTAIL_SOURCE_TOKEN?: string;
   readonly LOGTAIL_ENDPOINT?: string;

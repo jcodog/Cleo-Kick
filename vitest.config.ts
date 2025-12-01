@@ -14,7 +14,6 @@ export default defineConfig({
         "src/lib/app/types.ts",
         "src/lib/config/env.ts",
         "src/server.ts",
-        "src/server-types/**/*.ts",
       ],
       thresholds: {
         statements: 100,

@@ -7,6 +7,7 @@ import {
   type WebhookRouteOverrides,
 } from "./routes/webhook";
 import { registerDiagnosticsRoute } from "./routes/debug";
+import { registerOverlayRoutes } from "./routes/overlay";
 
 export interface CreateAppOptions {
   webhook?: WebhookRouteOverrides;
@@ -22,6 +23,7 @@ export function createApp(options: CreateAppOptions = {}): Hono<AppEnv> {
   registerWebhookRoute(app, options.webhook);
   registerHealthRoute(app);
   registerDiagnosticsRoute(app);
+  registerOverlayRoutes(app);
 
   return app;
 }

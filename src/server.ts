@@ -1,6 +1,8 @@
-import { serve } from "@hono/node-server";
+import { createAdaptorServer } from "@hono/node-server";
+import { Server as SocketIOServer } from "socket.io";
 import { createApp } from "./lib/app/createApp";
 import type { Env } from "./lib/config/env";
+import { initializeOverlaySocketServer } from "./lib/overlaySocket";
 
 const parsePort = (value: string | undefined): number => {
   const fallback = 8787;
@@ -33,20 +35,34 @@ const bindings: Env = {
   KICK_CLIENT_ID: process.env.KICK_CLIENT_ID,
   KICK_CLIENT_SECRET: process.env.KICK_CLIENT_SECRET,
   PORT: process.env.PORT,
+  HOST: process.env.HOST,
+  CORS_ORIGIN: process.env.CORS_ORIGIN,
   ERROR_LOG_PROCESS_NAME: process.env.ERROR_LOG_PROCESS_NAME,
   LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
   LOGTAIL_ENDPOINT: process.env.LOGTAIL_ENDPOINT,
 };
 
 const port = parsePort(process.env.PORT);
+const host = process.env.HOST ?? "0.0.0.0";
+const corsOrigin = process.env.CORS_ORIGIN ?? "*";
 const app = createApp();
 
-serve({
-  port,
+const httpServer = createAdaptorServer({
   fetch: (request) => app.fetch(request, bindings),
 });
 
-console.log(`Kick bot server listening on http://localhost:${port}`);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: corsOrigin,
+    methods: ["GET", "POST"],
+  },
+});
+
+initializeOverlaySocketServer(io);
+
+httpServer.listen(port, host, () => {
+  console.log(`HTTP + WebSocket server ready on http://${host}:${port}`);
+});
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection", reason);
