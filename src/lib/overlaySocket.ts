@@ -27,6 +27,7 @@ function getSocket() {
     return null;
   }
 
+  console.log("[OverlaySocket] Opening overlays chat WebSocket connection");
   socket = client.overlays.chat.$ws();
   return socket;
 }
@@ -34,9 +35,15 @@ function getSocket() {
 export function sendOverlayMessage(msg: OverlayMessage) {
   const activeSocket = getSocket();
   if (!activeSocket) {
+    console.debug(
+      `[OverlaySocket] Skipping emit room=${msg.roomId} reason=no-socket`
+    );
     return;
   }
 
+  console.debug(
+    `[OverlaySocket] Emitting overlay message room=${msg.roomId} author=${msg.author}`
+  );
   activeSocket.emit("message", {
     roomId: msg.roomId,
     author: msg.author,

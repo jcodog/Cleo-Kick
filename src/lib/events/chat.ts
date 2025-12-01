@@ -16,11 +16,23 @@ export const chatHandler = async (
   ctx: WebhookContext
 ): Promise<Response> => {
   const content = event.content ?? "";
+  const trimmedContent = content.trim();
   const username = event.sender?.username ?? event.broadcaster.username ?? "";
   const avatarUrl = event.sender?.profile_picture ?? undefined;
   const roomId = `overlay-chat-${event.broadcaster.user_id}`;
 
-  if (content.trim().length > 0) {
+  console.log(
+    `[Chat] Received message broadcaster=${event.broadcaster.username}[${
+      event.broadcaster.user_id
+    }] sender=${username || "<unknown>"} contentLength=${content.length}`
+  );
+
+  if (trimmedContent.length > 0) {
+    console.debug(
+      `[Chat] Forwarding overlay message room=${roomId} sender=${
+        username || "<unknown>"
+      }`
+    );
     sendOverlayMessage({
       roomId,
       author: username,
@@ -28,12 +40,21 @@ export const chatHandler = async (
       platform: "kick",
       avatarUrl,
     });
+  } else {
+    console.debug(
+      `[Chat] Ignoring blank message broadcaster=${event.broadcaster.user_id}`
+    );
   }
 
   const prefix = "!";
 
   if (content.startsWith(prefix)) {
     const [command] = content.slice(prefix.length).trim().split(/\s+/);
+    console.log(
+      `[Chat] Command detected broadcaster=${event.broadcaster.username}[${
+        event.broadcaster.user_id
+      }] command=${command || "<none>"}`
+    );
     if (!command) {
       return ctx.json({ ok: true }, { status: 200 });
     }
@@ -74,6 +95,10 @@ export const chatHandler = async (
           { status: sent.status as ContentfulStatusCode }
         );
       }
+    } else {
+      console.debug(
+        `[Chat] Unknown command ignored broadcaster=${event.broadcaster.user_id} command=${command}`
+      );
     }
   }
 
