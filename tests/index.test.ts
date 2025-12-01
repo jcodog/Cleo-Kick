@@ -22,7 +22,7 @@ const mockRenewedSub = vi.fn(async (_event, _db, ctx) =>
 const mockKicksGifted = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ message: "ok" }, { status: 200 })
 );
-const mockCommandReply = vi.fn(async (_event, _db, ctx) =>
+const mockChatHandler = vi.fn(async (_event, _db, ctx) =>
   ctx.json({ message: "ok" }, { status: 200 })
 );
 const mockNotifyDeveloper = vi.fn();
@@ -67,7 +67,7 @@ async function loadApp() {
   mockGiftedSubs.mockReset();
   mockRenewedSub.mockReset();
   mockKicksGifted.mockReset();
-  mockCommandReply.mockReset();
+  mockChatHandler.mockReset();
   mockNotifyDeveloper.mockReset();
   mockNotifyDeveloper.mockResolvedValue(undefined);
   mockFollowEvent.mockImplementation(async (_event, _db, ctx) =>
@@ -88,7 +88,7 @@ async function loadApp() {
   mockKicksGifted.mockImplementation(async (_event, _db, ctx) =>
     ctx.json({ message: "ok" }, { status: 200 })
   );
-  mockCommandReply.mockImplementation(async (_event, _db, ctx) =>
+  mockChatHandler.mockImplementation(async (_event, _db, ctx) =>
     ctx.json({ message: "ok" }, { status: 200 })
   );
 
@@ -105,7 +105,7 @@ async function loadApp() {
         giftedSubs: mockGiftedSubs,
         renewedSub: mockRenewedSub,
         kicksGifted: mockKicksGifted,
-        commandReply: mockCommandReply,
+        chatHandler: mockChatHandler,
       },
     },
   });
@@ -276,7 +276,7 @@ describe("index routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockCommandReply).toHaveBeenCalledTimes(1);
+    expect(mockChatHandler).toHaveBeenCalledTimes(1);
   });
 
   test("POST /webhook returns 422 for unknown event types", async () => {

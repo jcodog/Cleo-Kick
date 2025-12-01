@@ -1,78 +1,81 @@
 import { ChatMessageEvent } from "kick-api-types/payloads";
 import { DbClient } from "../prisma";
-import { sendMessage } from "../functions/messages";
-import { ContentfulStatusCode } from "hono/utils/http-status";
-import type { KickBroadcasterAuth } from "../functions/middleware";
 import type { WebhookContext } from "../app/types";
+import { sendOverlayMessage } from "../overlaySocket";
+import { sendMessage } from "../functions/messages";
+import { KickBroadcasterAuth } from "../functions/middleware";
+import { ContentfulStatusCode } from "hono/utils/http-status";
 
 /**
  * Processes incoming chat commands and responds when the payload starts with
  * the bot command prefix.
  */
-export const commandReply = async (
+export const chatHandler = async (
   event: ChatMessageEvent,
   _db: DbClient,
   ctx: WebhookContext
 ): Promise<Response> => {
-  if (!event.content.startsWith("!")) {
-    console.log("[Chat] No command - Returning null");
-    return ctx.json(
-      { message: "No command" },
-      { status: 200 as ContentfulStatusCode }
-    );
-  }
+  const content = event.content ?? "";
+  const username = event.sender?.username ?? event.broadcaster.username ?? "";
+  const avatarUrl = event.sender?.profile_picture ?? undefined;
+  const roomId = `overlay-chat-${event.broadcaster.user_id}`;
 
-  const broadcasterAuth = ctx.get(
-    "kickBroadcasterAuth"
-  ) as KickBroadcasterAuth | null;
-  if (!broadcasterAuth) {
-    console.error(
-      `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
-    );
-    return ctx.json({ message: "Broadcaster not registered" }, { status: 404 });
-  }
-
-  console.log("[Chat] Broadcaster valid - sending message");
-
-  const message = event.content.slice(1).trim();
-  if (!message) {
-    return ctx.json(
-      { message: "No command" },
-      { status: 200 as ContentfulStatusCode }
-    );
-  }
-
-  const [command, ...argParts] = message.split(/\s+/);
-
-  const args = argParts.join(" ");
-  if (command === "echo") {
-    const message = args;
-    const sent = await sendMessage({
-      broadcaster: {
-        name: event.broadcaster.username!,
-        accessToken: broadcasterAuth.accessToken,
-      },
-      message,
+  if (content.trim().length > 0) {
+    sendOverlayMessage({
+      roomId,
+      author: username,
+      text: content,
+      platform: "kick",
+      avatarUrl,
     });
+  }
 
-    if (sent.sent) {
-      console.log("[Chat] Message sent");
-      return ctx.json(
-        { message: sent.message },
-        { status: sent.status as ContentfulStatusCode }
-      );
+  const prefix = "!";
+
+  if (content.startsWith(prefix)) {
+    const [command] = content.slice(prefix.length).trim().split(/\s+/);
+    if (!command) {
+      return ctx.json({ ok: true }, { status: 200 });
     }
 
-    console.log("[Chat] Message not sent");
-    return ctx.json(
-      { message: sent.message },
-      { status: sent.status as ContentfulStatusCode }
-    );
+    if (command === "ping") {
+      const broadcasterAuth = ctx.get(
+        "kickBroadcasterAuth"
+      ) as KickBroadcasterAuth | null;
+      if (!broadcasterAuth) {
+        console.error(
+          `[event:${event.eventType}:error] Broadcaster ${event.broadcaster.username}[${event.broadcaster.user_id}] is not registered.`
+        );
+        return ctx.json(
+          { message: "Broadcaster not registered" },
+          { status: 404 }
+        );
+      }
+
+      const message = "Pong!";
+      const sent = await sendMessage({
+        broadcaster: {
+          name: event.broadcaster.username!,
+          accessToken: broadcasterAuth.accessToken,
+        },
+        message,
+      });
+
+      if (sent.sent) {
+        console.log("[Chat-Command] Message sent");
+        return ctx.json(
+          { message: sent.message },
+          { status: sent.status as ContentfulStatusCode }
+        );
+      } else {
+        console.log("[Chat-Command] Message not sent");
+        return ctx.json(
+          { message: sent.message },
+          { status: sent.status as ContentfulStatusCode }
+        );
+      }
+    }
   }
 
-  console.log("[Chat] Unknown command", { command, args });
-  return ctx.json(
-    { message: "Unknown command" },
-    { status: 200 as ContentfulStatusCode }
-  );
+  return ctx.json({ ok: true }, { status: 200 });
 };

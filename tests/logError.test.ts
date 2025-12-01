@@ -92,8 +92,6 @@ describe("recordError", () => {
 
     await recordError(env as any, {
       message: "boom",
-      status: 500,
-      context: { foo: "bar" },
     });
 
     expect(mocks.getDb).toHaveBeenCalledWith("postgres://example");
@@ -102,9 +100,9 @@ describe("recordError", () => {
     expect(createArgs.data).toMatchObject({
       process: "worker",
       message: "boom",
-      status: 500,
+      stackTrace: "Stack trace unavailable",
     });
-    expect(createArgs.data.context).toContain('"foo": "bar"');
+    expect(createArgs.data.timestamp).toBeInstanceOf(Date);
     expect(warnSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
     expect(mocks.notifyDeveloperOfError).toHaveBeenCalledTimes(1);
@@ -208,7 +206,7 @@ describe("recordError", () => {
     );
   });
 
-  test("serialises complex contexts safely", async () => {
+  test("stores provided stack traces and ignores non-numeric statuses for Logtail", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { recordError } = await import(
@@ -217,84 +215,8 @@ describe("recordError", () => {
 
     const env = {
       DATABASE_URL: "postgres://example",
-    } as any;
-
-    await recordError(env, {
-      message: "boom",
-      context: {
-        nested: { error: new Error("bad") },
-        value: BigInt(42),
-        filler: "x".repeat(20_000),
-      },
-    });
-
-    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
-    const contextString = createArgs.data.context as string;
-    expect(contextString).toContain('"value": 42');
-    expect(contextString).toContain('"name": "Error"');
-    expect(contextString.includes("…")).toBe(true);
-    expect(errorSpy).not.toHaveBeenCalled();
-  });
-
-  test("stringifies non-serialisable contexts with fallbacks", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { recordError } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    const env = {
-      DATABASE_URL: "postgres://example",
-    } as any;
-
-    const circular: Record<string, unknown> & { self?: unknown } = {};
-    circular.self = circular;
-
-    await recordError(env, {
-      message: "loop",
-      context: circular,
-    });
-
-    const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
-    const contextString = createArgs.data.context as string;
-    expect(contextString).toContain("Converting circular structure to JSON");
-    expect(errorSpy).not.toHaveBeenCalled();
-  });
-
-  test("treats custom toJSON returning undefined as empty context", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { recordError } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    const env = {
-      DATABASE_URL: "postgres://example",
-    } as any;
-
-    await recordError(env, {
-      message: "void",
-      context: {
-        toJSON() {
-          return undefined;
-        },
-      },
-    });
-
-    const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
-    expect(createArgs.data.context).toBe("{}");
-    expect(errorSpy).not.toHaveBeenCalled();
-  });
-
-  test("stores stack traces and normalises non-numeric statuses", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { recordError } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    const env = {
-      DATABASE_URL: "postgres://example",
+      LOGTAIL_SOURCE_TOKEN: "token",
+      LOGTAIL_ENDPOINT: "https://logs.example.com",
     } as any;
 
     await recordError(env, {
@@ -304,8 +226,14 @@ describe("recordError", () => {
     });
 
     const [[createArgs]] = mocks.errorLogCreate.mock.calls.slice(-1);
-    expect(createArgs.data.status).toBeNull();
     expect(createArgs.data.stackTrace).toBe("stack-trace");
+
+    expect(mocks.logtailInstance.error).toHaveBeenLastCalledWith("boom", {
+      context: null,
+      process: "kick-bot",
+      status: null,
+      timestamp: expect.any(String),
+    });
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
@@ -360,63 +288,6 @@ describe("recordError", () => {
       timestamp: expect.any(String),
       context: { ok: true },
     });
-    expect(errorSpy).not.toHaveBeenCalled();
-  });
-
-  test("falls back to error string when JSON.stringify throws", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const realStringify = JSON.stringify;
-    const stringifySpy = vi
-      .spyOn(JSON, "stringify")
-      .mockImplementationOnce(() => {
-        throw new TypeError("unexpected failure");
-      })
-      .mockImplementation((...args) => realStringify.call(JSON, ...args));
-
-    const { recordError } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    const env = {
-      DATABASE_URL: "postgres://example",
-    } as any;
-
-    await recordError(env, {
-      message: "boom",
-      context: { trigger: "stringify-error" },
-    });
-
-    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
-    expect(createArgs.data.context).toBe("TypeError: unexpected failure");
-    expect(stringifySpy).toHaveBeenCalled();
-    expect(errorSpy).not.toHaveBeenCalled();
-  });
-
-  test("falls back to original value when thrown error is undefined", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const realStringify = JSON.stringify;
-    vi.spyOn(JSON, "stringify")
-      .mockImplementationOnce(() => {
-        throw undefined;
-      })
-      .mockImplementation((...args) => realStringify.call(JSON, ...args));
-
-    const { recordError } = await import(
-      "../src/lib/functions/errors/logError"
-    );
-
-    const env = {
-      DATABASE_URL: "postgres://example",
-    } as any;
-
-    const context = { source: "undefined-error" };
-    await recordError(env, {
-      message: "boom",
-      context,
-    });
-
-    const [[createArgs]] = mocks.errorLogCreate.mock.calls;
-    expect(createArgs.data.context).toBe(String(context));
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });

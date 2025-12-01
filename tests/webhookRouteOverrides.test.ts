@@ -15,9 +15,7 @@ const routeMocks = vi.hoisted(() => {
   const giftedSubs = vi.fn(async (_event, _db, ctx) => ctx.json({ ok: true }));
   const renewedSub = vi.fn(async (_event, _db, ctx) => ctx.json({ ok: true }));
   const kicksGifted = vi.fn(async (_event, _db, ctx) => ctx.json({ ok: true }));
-  const commandReply = vi.fn(async (_event, _db, ctx) =>
-    ctx.json({ ok: true })
-  );
+  const chatHandler = vi.fn(async (_event, _db, ctx) => ctx.json({ ok: true }));
 
   const dispatchWebhookEvent = vi.fn(
     async (_result, _db, _ctx, handlers) =>
@@ -48,7 +46,7 @@ const routeMocks = vi.hoisted(() => {
     giftedSubs,
     renewedSub,
     kicksGifted,
-    commandReply,
+    chatHandler,
     dispatchWebhookEvent,
     createKickWebhookValidationMiddleware,
   } as const;
@@ -89,7 +87,7 @@ vi.mock("../src/lib/events/kicks", () => ({
 
 vi.mock("../src/lib/events/chat", () => ({
   __esModule: true,
-  commandReply: routeMocks.commandReply,
+  chatHandler: routeMocks.chatHandler,
 }));
 
 vi.mock("../src/lib/app/handlers/dispatchWebhookEvent", () => ({
@@ -113,7 +111,7 @@ const newSubscriberMock = routeMocks.newSubscriber;
 const giftedSubsMock = routeMocks.giftedSubs;
 const renewedSubMock = routeMocks.renewedSub;
 const kicksGiftedMock = routeMocks.kicksGifted;
-const commandReplyMock = routeMocks.commandReply;
+const chatHandlerMock = routeMocks.chatHandler;
 const dispatchWebhookEventMock = routeMocks.dispatchWebhookEvent;
 const createKickWebhookValidationMiddlewareMock =
   routeMocks.createKickWebhookValidationMiddleware;
@@ -153,7 +151,7 @@ describe("registerWebhookRoute dependency resolution", () => {
       });
       expect(db).toEqual({ db: true });
       expect(handlers.followEvent).toBe(followEventMock);
-      expect(handlers.commandReply).toBe(commandReplyMock);
+      expect(handlers.chatHandler).toBe(chatHandlerMock);
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -185,7 +183,7 @@ describe("registerWebhookRoute dependency resolution", () => {
     const [, db, _ctx, handlers] = dispatchWebhookEventMock.mock.calls[0];
     expect(db).toEqual({ db: true });
     expect(handlers.followEvent).toBe(overrideFollow);
-    expect(handlers.commandReply).toBe(commandReplyMock);
+    expect(handlers.chatHandler).toBe(chatHandlerMock);
     expect(getDbMock).toHaveBeenCalledWith("");
   });
 });

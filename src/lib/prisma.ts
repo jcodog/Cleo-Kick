@@ -1,34 +1,28 @@
-import { Prisma, PrismaClient } from "../prisma";
+import { Prisma, PrismaClient } from "../prisma/client";
 import { withAccelerate } from "@prisma/extension-accelerate";
 
-const createDbClient = (databaseUrl: string) =>
-  new PrismaClient({ datasourceUrl: databaseUrl }).$extends(withAccelerate());
-
+// Helper to instantiate a PrismaClient extended with accelerate
+function createDbClient(url: string) {
+  return new PrismaClient({ accelerateUrl: url }).$extends(withAccelerate());
+}
 export type DbClient = ReturnType<typeof createDbClient>;
 
+// Cache Prisma clients by their connection URL on the global object
 declare global {
-  // eslint-disable-next-line no-var
   var prismaClients: Record<string, DbClient> | undefined;
 }
 
-/**
- * Lazily instantiate and cache Accelerate-enabled Prisma clients by
- * connection string to keep connection usage efficient on long-lived hosts.
- */
-export const getDb = (databaseUrl: string): DbClient => {
-  if (!databaseUrl) {
+export const getDb = (DATABASE_URL: string): DbClient => {
+  if (!DATABASE_URL) {
     throw new Error("Missing DATABASE_URL configuration");
   }
-
   if (!globalThis.prismaClients) {
     globalThis.prismaClients = {};
   }
-
-  if (!globalThis.prismaClients[databaseUrl]) {
-    globalThis.prismaClients[databaseUrl] = createDbClient(databaseUrl);
+  if (!globalThis.prismaClients[DATABASE_URL]) {
+    globalThis.prismaClients[DATABASE_URL] = createDbClient(DATABASE_URL);
   }
-
-  return globalThis.prismaClients[databaseUrl]!;
+  return globalThis.prismaClients[DATABASE_URL]!;
 };
 
 export { Prisma };

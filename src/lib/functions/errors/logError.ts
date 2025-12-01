@@ -17,44 +17,6 @@ let logtailClient: {
 let logtailToken: string | null = null;
 let logtailInitialisationWarned = false;
 
-const CONTEXT_MAX_LENGTH = 16_000;
-
-function safeStringify(
-  value: unknown,
-  spacing = 2,
-  maxLength = CONTEXT_MAX_LENGTH
-): string {
-  try {
-    const json = JSON.stringify(
-      value,
-      (_key, innerValue) => {
-        if (innerValue instanceof Error) {
-          return {
-            name: innerValue.name,
-            message: innerValue.message,
-            stack: innerValue.stack,
-          };
-        }
-
-        if (typeof innerValue === "bigint") {
-          return Number(innerValue);
-        }
-
-        return innerValue;
-      },
-      spacing
-    );
-
-    if (!json) {
-      return "{}";
-    }
-
-    return json.length > maxLength ? `${json.slice(0, maxLength)}…` : json;
-  } catch (error) {
-    return String(error ?? value);
-  }
-}
-
 async function getLogtail(env: Env) {
   const token = env.LOGTAIL_SOURCE_TOKEN;
   const endpoint = env.LOGTAIL_ENDPOINT;
@@ -104,10 +66,8 @@ async function persistError(env: Env, entry: ErrorLogEntry, timestamp: Date) {
       data: {
         process: env.ERROR_LOG_PROCESS_NAME ?? "kick-bot",
         message: entry.message,
-        status: typeof entry.status === "number" ? entry.status : null,
-        stackTrace: entry.stack ?? null,
-        context: entry.context ? safeStringify(entry.context) : null,
-        createdAt: timestamp,
+        stackTrace: entry.stack ?? "Stack trace unavailable",
+        timestamp,
       },
     });
   } catch (error) {
@@ -127,7 +87,7 @@ async function forwardToLogtail(
 
   try {
     await client.error(entry.message, {
-      status: entry.status ?? null,
+      status: typeof entry.status === "number" ? entry.status : null,
       process: env.ERROR_LOG_PROCESS_NAME ?? "kick-bot",
       timestamp: timestamp.toISOString(),
       context: entry.context ?? null,

@@ -4,19 +4,19 @@ const prismaMocks = vi.hoisted(() => {
   const PrismaClient = vi.fn(function PrismaClient(
     this: unknown,
     {
-      datasourceUrl,
+      accelerateUrl,
     }: {
-      datasourceUrl: string;
+      accelerateUrl: string;
     }
   ) {
     const extendMock = vi.fn().mockImplementation((extension: unknown) => ({
-      datasourceUrl,
+      accelerateUrl,
       extension,
       extended: true,
     }));
 
     return {
-      datasourceUrl,
+      accelerateUrl,
       $extends: extendMock,
     };
   });
@@ -24,7 +24,7 @@ const prismaMocks = vi.hoisted(() => {
   return { PrismaClient } as const;
 });
 
-vi.mock("../src/prisma", () => ({
+vi.mock("../src/prisma/client", () => ({
   PrismaClient: prismaMocks.PrismaClient,
   Prisma: {},
 }));
@@ -55,7 +55,7 @@ describe("getDb", () => {
 
     expect(prismaMocks.PrismaClient).toHaveBeenCalledTimes(1);
     expect(prismaMocks.PrismaClient).toHaveBeenCalledWith({
-      datasourceUrl: "postgres://first",
+      accelerateUrl: "postgres://first",
     });
 
     const prismaInstance = prismaMocks.PrismaClient.mock.results[0]?.value;
@@ -63,7 +63,7 @@ describe("getDb", () => {
       "accelerate-extension"
     );
     expect(client).toEqual({
-      datasourceUrl: "postgres://first",
+      accelerateUrl: "postgres://first",
       extension: "accelerate-extension",
       extended: true,
     });

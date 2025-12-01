@@ -1,16 +1,22 @@
-import { describe, expect, test, vi, type Mock } from "vitest";
+import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
 import type { ChatMessageEvent } from "kick-api-types/payloads";
-import { commandReply } from "../src/lib/events/chat";
+import { chatHandler } from "../src/lib/events/chat";
 import type { KickBroadcasterAuth } from "../src/lib/functions/middleware";
 import type { WebhookContext } from "../src/lib/app/types";
 import { sendMessage } from "../src/lib/functions/messages";
+import { sendOverlayMessage } from "../src/lib/overlaySocket";
 import type { DbClient } from "../src/lib/prisma";
 
 vi.mock("../src/lib/functions/messages", () => ({
   sendMessage: vi.fn(),
 }));
 
+vi.mock("../src/lib/overlaySocket", () => ({
+  sendOverlayMessage: vi.fn(),
+}));
+
 const mockSendMessage = sendMessage as unknown as Mock;
+const mockSendOverlayMessage = sendOverlayMessage as unknown as Mock;
 
 function createEvent(
   overrides: Partial<ChatMessageEvent> = {}
@@ -21,6 +27,10 @@ function createEvent(
     broadcaster: {
       username: "caster",
       user_id: "123",
+    },
+    sender: {
+      username: "viewer",
+      profile_picture: "https://example.com/avatar.png",
     },
     content: "hello world",
     ...overrides,
@@ -46,82 +56,130 @@ function createContext(auth: KickBroadcasterAuth | null) {
   return { ctx, jsonMock } as const;
 }
 
-describe("commandReply", () => {
+describe("chatHandler", () => {
   const db = {} as DbClient;
 
-  test("returns 200 when message does not start with a command", async () => {
+  beforeEach(() => {
+    mockSendOverlayMessage.mockReset();
+    mockSendMessage.mockReset();
+  });
+
+  test("emits overlay events even when broadcaster auth is missing", async () => {
     const { ctx } = createContext(null);
     const event = createEvent({ content: "just chatting" });
 
-    const response = await commandReply(event, db, ctx);
+    const response = await chatHandler(event, db, ctx);
 
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
+      roomId: "overlay-chat-123",
+      author: "viewer",
+      text: "just chatting",
+      platform: "kick",
+      avatarUrl: "https://example.com/avatar.png",
+    });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "No command" });
+    expect(await response.json()).toEqual({ ok: true });
   });
 
-  test("returns 404 when broadcaster is not registered", async () => {
+  test("falls back to broadcaster info when sender is missing", async () => {
     const { ctx } = createContext(null);
-    const event = createEvent({ content: "!echo hello" });
+    const event = createEvent({ sender: undefined });
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
+      roomId: "overlay-chat-123",
+      author: "caster",
+      text: "hello world",
+      platform: "kick",
+      avatarUrl: undefined,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  test("defaults author to empty string when no sender or broadcaster username", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({
+      sender: undefined,
+      broadcaster: {
+        username: undefined as unknown as string,
+        user_id: "123",
+      },
+    });
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
+      roomId: "overlay-chat-123",
+      author: "",
+      text: "hello world",
+      platform: "kick",
+      avatarUrl: undefined,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  test("does not emit overlay events for blank messages", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({ content: "   " });
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("returns 404 when broadcaster is not registered for ping command", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({ content: "!ping" });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const response = await commandReply(event, db, ctx);
+    const response = await chatHandler(event, db, ctx);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({
       message: "Broadcaster not registered",
     });
+    expect(mockSendOverlayMessage).toHaveBeenCalledTimes(1);
 
     errorSpy.mockRestore();
   });
 
-  test("returns 200 when command payload is empty", async () => {
+  test("ping command returns API success response", async () => {
     const auth: KickBroadcasterAuth = {
       accountId: "123",
       accessToken: "token",
     };
     const { ctx } = createContext(auth);
-    const event = createEvent({ content: "!   " });
-
-    const response = await commandReply(event, db, ctx);
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "No command" });
-  });
-
-  test("echo command returns API success response", async () => {
-    const auth: KickBroadcasterAuth = {
-      accountId: "123",
-      accessToken: "token",
-    };
-    const { ctx } = createContext(auth);
-    const event = createEvent({ content: "!echo hello world" });
+    const event = createEvent({ content: "!ping" });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: true,
-      message: "hello world",
+      message: "Pong!",
       status: 200,
     });
 
-    const response = await commandReply(event, db, ctx);
+    const response = await chatHandler(event, db, ctx);
 
     expect(mockSendMessage).toHaveBeenCalledWith({
       broadcaster: {
         name: "caster",
         accessToken: "token",
       },
-      message: "hello world",
+      message: "Pong!",
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "hello world" });
+    expect(await response.json()).toEqual({ message: "Pong!" });
   });
 
-  test("echo command surfaces API errors", async () => {
+  test("ping command surfaces API errors", async () => {
     const auth: KickBroadcasterAuth = {
       accountId: "123",
       accessToken: "token",
     };
     const { ctx } = createContext(auth);
-    const event = createEvent({ content: "!echo too fast" });
+    const event = createEvent({ content: "!ping" });
 
     mockSendMessage.mockResolvedValueOnce({
       sent: false,
@@ -129,13 +187,35 @@ describe("commandReply", () => {
       status: 429,
     });
 
-    const response = await commandReply(event, db, ctx);
+    const response = await chatHandler(event, db, ctx);
 
     expect(response.status).toBe(429);
     expect(await response.json()).toEqual({ message: "rate limited" });
   });
 
-  test("returns 200 for unknown commands", async () => {
+  test("returns success when command prefix has no command", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({ content: "!   " });
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  test("ignores events with missing content", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({ content: undefined });
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("ignores unknown commands", async () => {
     const auth: KickBroadcasterAuth = {
       accountId: "123",
       accessToken: "token",
@@ -143,13 +223,9 @@ describe("commandReply", () => {
     const { ctx } = createContext(auth);
     const event = createEvent({ content: "!dance" });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const response = await commandReply(event, db, ctx);
+    const response = await chatHandler(event, db, ctx);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "Unknown command" });
-
-    logSpy.mockRestore();
+    expect(await response.json()).toEqual({ ok: true });
   });
 });

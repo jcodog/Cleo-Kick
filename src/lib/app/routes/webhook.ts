@@ -11,7 +11,7 @@ import {
   renewedSub,
 } from "../../events/subscriptions";
 import { kicksGifted } from "../../events/kicks";
-import { commandReply } from "../../events/chat";
+import { chatHandler } from "../../events/chat";
 import type { AppEnv, WebhookContext } from "../types";
 import {
   dispatchWebhookEvent,
@@ -49,7 +49,7 @@ const defaultDependencies: WebhookRouteDependencies = {
     giftedSubs,
     renewedSub,
     kicksGifted,
-    commandReply,
+    chatHandler,
   },
 };
 

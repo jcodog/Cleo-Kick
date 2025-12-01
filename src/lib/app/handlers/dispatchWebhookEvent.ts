@@ -45,7 +45,7 @@ export interface WebhookEventHandlers {
     db: DbClient,
     ctx: WebhookContext
   ) => Promise<Response>;
-  commandReply: (
+  chatHandler: (
     event: ChatMessageEvent,
     db: DbClient,
     ctx: WebhookContext
@@ -95,7 +95,7 @@ export async function dispatchWebhookEvent(
     case "kicks.gifted":
       return handlers.kicksGifted(result.payload as KicksGiftedEvent, db, ctx);
     case "chat.message.sent":
-      return handlers.commandReply(result.payload as ChatMessageEvent, db, ctx);
+      return handlers.chatHandler(result.payload as ChatMessageEvent, db, ctx);
     default:
       return ctx.json({ message: "Unknown event type" }, 422);
   }
