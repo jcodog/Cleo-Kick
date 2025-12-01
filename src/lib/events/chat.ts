@@ -18,8 +18,8 @@ export const chatHandler = async (
   const content = event.content ?? "";
   const trimmedContent = content.trim();
   const username = event.sender?.username ?? event.broadcaster.username ?? "";
-  // const avatarUrl = event.sender?.profile_picture ?? undefined; // temp removed due to bug
-  const avatarUrl = `https://api.stream-stuff.com/kickpfp.php?streamer=${username}`
+  // const avatarUrl = event.sender?.profile_picture; // temp removed due to bug
+  const avatarUrl = `https://api.stream-stuff.com/kickpfp.php?streamer=${username}`;
   const roomId = `overlay-chat-${event.broadcaster.user_id}`;
 
   console.log(

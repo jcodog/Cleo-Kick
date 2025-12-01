@@ -90,7 +90,7 @@ describe("chatHandler", () => {
         author: "viewer",
         text: "just chatting",
         platform: "kick",
-        avatarUrl: "https://example.com/avatar.png",
+        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=viewer",
       },
       undefined
     );
@@ -110,7 +110,7 @@ describe("chatHandler", () => {
         author: "caster",
         text: "hello world",
         platform: "kick",
-        avatarUrl: undefined,
+        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=caster",
       },
       undefined
     );
@@ -135,7 +135,7 @@ describe("chatHandler", () => {
         author: "",
         text: "hello world",
         platform: "kick",
-        avatarUrl: undefined,
+        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=",
       },
       undefined
     );
