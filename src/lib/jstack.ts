@@ -1,7 +1,13 @@
+import type { AppRouter } from "../server-types";
 import { createClient } from "jstack";
-import { AppRouter } from "../server-types";
 
+/**
+ * Your type-safe API client
+ * @see https://jstack.app/docs/backend/api-client
+ */
 export const client = createClient<AppRouter>({
-  baseUrl: `${process.env.JSTACK_API_URL}/api`,
+  baseUrl: `${
+    process.env.NEXT_PUBLIC_API_URL ?? "https://api.cleoai.cloud"
+  }/api`,
   credentials: "include",
 });

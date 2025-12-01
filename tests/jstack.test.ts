@@ -17,11 +17,11 @@ describe("lib/jstack", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    delete process.env.JSTACK_API_URL;
+    delete process.env.NEXT_PUBLIC_API_URL;
   });
 
-  test("uses custom base URL when provided", async () => {
-    process.env.JSTACK_API_URL = "https://local.dev/api";
+  test("derives base URL from NEXT_PUBLIC_API_URL", async () => {
+    process.env.NEXT_PUBLIC_API_URL = "https://local.dev";
 
     const module = await import("../src/lib/jstack");
 
