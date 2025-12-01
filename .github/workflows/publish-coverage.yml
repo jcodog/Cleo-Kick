@@ -20,6 +20,8 @@ concurrency:
 jobs:
   run-coverage:
     runs-on: ubuntu-latest
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
