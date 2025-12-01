@@ -39,8 +39,7 @@ const bindings: Env = {
   ERROR_LOG_PROCESS_NAME: process.env.ERROR_LOG_PROCESS_NAME,
   LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
   LOGTAIL_ENDPOINT: process.env.LOGTAIL_ENDPOINT,
-  OVERLAY_RELAY_URL: process.env.OVERLAY_RELAY_URL,
-  OVERLAY_RELAY_AUTH_TOKEN: process.env.OVERLAY_RELAY_AUTH_TOKEN,
+  WS_URL: process.env.WS_URL,
 };
 
 const port = parsePort(process.env.PORT);
@@ -48,8 +47,7 @@ const host = process.env.HOST ?? "0.0.0.0";
 const app = createApp();
 
 configureOverlayRelay({
-  endpoint: process.env.OVERLAY_RELAY_URL,
-  authToken: process.env.OVERLAY_RELAY_AUTH_TOKEN,
+  endpoint: process.env.WS_URL,
 });
 
 const httpServer = createAdaptorServer({

@@ -26,8 +26,7 @@ const sanitizeOptional = (value?: string): string | undefined => {
 export function registerOverlayRoutes(app: Hono<AppEnv>): void {
   app.post("/test-message", async (c) => {
     const overrides = {
-      endpoint: c.env.OVERLAY_RELAY_URL,
-      authToken: c.env.OVERLAY_RELAY_AUTH_TOKEN,
+      endpoint: c.env.WS_URL,
     };
 
     const hasEnvOverrides = Boolean(overrides.endpoint?.trim().length);

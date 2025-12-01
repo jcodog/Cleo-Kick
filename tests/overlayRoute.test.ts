@@ -36,7 +36,7 @@ describe("overlay test-message route", () => {
         method: "POST",
         body: JSON.stringify({ roomId: "1" }),
       },
-      { OVERLAY_RELAY_URL: undefined } as any
+      { WS_URL: undefined } as any
     );
 
     expect(response.status).toBe(503);
@@ -55,7 +55,7 @@ describe("overlay test-message route", () => {
         method: "POST",
         body: "{bad",
       },
-      { OVERLAY_RELAY_URL: "https://relay.test/test-message" } as any
+      { WS_URL: "https://relay.test/test-message" } as any
     );
 
     expect(response.status).toBe(400);
@@ -73,7 +73,7 @@ describe("overlay test-message route", () => {
         method: "POST",
         body: JSON.stringify({ roomId: null }),
       },
-      { OVERLAY_RELAY_URL: "https://relay.test/test-message" } as any
+      { WS_URL: "https://relay.test/test-message" } as any
     );
 
     expect(response.status).toBe(400);
@@ -92,7 +92,7 @@ describe("overlay test-message route", () => {
         method: "POST",
         body: JSON.stringify({ roomId: "1", text: "hi" }),
       },
-      { OVERLAY_RELAY_URL: "https://relay.test/test-message" } as any
+      { WS_URL: "https://relay.test/test-message" } as any
     );
 
     expect(response.status).toBe(500);
@@ -118,7 +118,7 @@ describe("overlay test-message route", () => {
         method: "POST",
         body: JSON.stringify({ roomId: "abc", text: "Hi", platform: "kick" }),
       },
-      { OVERLAY_RELAY_URL: "https://relay.test/test-message" } as any
+      { WS_URL: "https://relay.test/test-message" } as any
     );
 
     expect(response.status).toBe(200);
@@ -137,7 +137,6 @@ describe("overlay test-message route", () => {
       },
       {
         endpoint: "https://relay.test/test-message",
-        authToken: undefined,
       }
     );
   });
@@ -166,7 +165,7 @@ describe("overlay test-message route", () => {
           avatarUrl: "  ",
         }),
       },
-      { OVERLAY_RELAY_URL: "https://relay.test/test-message" } as any
+      { WS_URL: "https://relay.test/test-message" } as any
     );
 
     expect(response.status).toBe(200);
@@ -184,7 +183,6 @@ describe("overlay test-message route", () => {
       },
       {
         endpoint: "https://relay.test/test-message",
-        authToken: undefined,
       }
     );
   });

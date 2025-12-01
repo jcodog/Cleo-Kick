@@ -18,12 +18,10 @@ export type OverlayMessageInput = {
 
 export type OverlayRelayConfig = {
   endpoint?: string;
-  authToken?: string;
 };
 
 type ResolvedOverlayRelayConfig = {
   endpoint: string;
-  authToken?: string;
 };
 
 const OVERLAY_ROOM_PREFIX = "overlay-chat-";
@@ -47,7 +45,6 @@ const sanitizeEndpoint = (value?: string): string | null => {
 };
 
 let relayEndpoint: string | null = null;
-let relayAuthToken: string | undefined;
 let serverNotReadyWarningLogged = false;
 
 export const formatOverlayRoomId = (value: string): string => {
@@ -70,13 +67,11 @@ const resolveRelayConfig = (
     return null;
   }
 
-  const authToken = trimToOptional(overrides?.authToken) ?? relayAuthToken;
-  return { endpoint, authToken };
+  return { endpoint };
 };
 
 export function configureOverlayRelay(config: OverlayRelayConfig): void {
   relayEndpoint = sanitizeEndpoint(config.endpoint);
-  relayAuthToken = trimToOptional(config.authToken);
   serverNotReadyWarningLogged = false;
 }
 
@@ -180,20 +175,17 @@ const createSocketClient = (
     transports: ["websocket"],
     forceNew: true,
     query: { roomId },
-    auth: config.authToken ? { token: config.authToken } : undefined,
   });
 };
 
 export const __overlaySocketInternals = {
   reset() {
     relayEndpoint = null;
-    relayAuthToken = undefined;
     serverNotReadyWarningLogged = false;
   },
   getConfig(): OverlayRelayConfig {
     return {
       endpoint: relayEndpoint ?? undefined,
-      authToken: relayAuthToken,
     };
   },
 };

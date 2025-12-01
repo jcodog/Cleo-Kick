@@ -108,7 +108,7 @@ under your preferred process supervisor.
 
 - Set `DASHBOARD_URL` in `wrangler.json` (or via Cloudflare dashboard) to tell the root route where to redirect users for chatbot management.
 - Provide `HOST` when running the Node adapter if you need to bind to a specific interface (defaults to `0.0.0.0`).
-- Point `OVERLAY_RELAY_URL` at the remote WebSocket relay HTTP endpoint (for example the `/test-message` route exposed by the dedicated overlay service) and optionally set `OVERLAY_RELAY_AUTH_TOKEN` if the relay expects bearer authentication.
+- Point `WS_URL` at the remote WebSocket relay HTTP endpoint (for example the `/test-message` route exposed by the dedicated overlay service).
 
 ## Routes
 

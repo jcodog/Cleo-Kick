@@ -75,7 +75,6 @@ describe("overlaySocket", () => {
   test("emits payloads over the socket client", async () => {
     configureOverlayRelay({
       endpoint: "https://relay.test",
-      authToken: "token",
     });
 
     const sendPromise = sendOverlayMessage({
@@ -93,7 +92,6 @@ describe("overlaySocket", () => {
       "https://relay.test",
       expect.objectContaining({
         query: { roomId: "overlay-chat-123" },
-        auth: { token: "token" },
       })
     );
 
@@ -120,7 +118,6 @@ describe("overlaySocket", () => {
   test("guards against duplicate finalize calls", async () => {
     configureOverlayRelay({
       endpoint: "https://relay.test",
-      authToken: "token",
     });
 
     const sendPromise = sendOverlayMessage({
@@ -195,21 +192,18 @@ describe("overlaySocket", () => {
   test("exposes relay config snapshots", () => {
     configureOverlayRelay({
       endpoint: "https://relay.test",
-      authToken: "secret",
     });
     expect(__overlaySocketInternals.getConfig()).toEqual({
       endpoint: "https://relay.test",
-      authToken: "secret",
     });
   });
 
   test("treats blank relay config values as unset", () => {
-    configureOverlayRelay({ endpoint: "   ", authToken: "   " });
+    configureOverlayRelay({ endpoint: "   " });
 
     expect(isOverlayRelayConfigured()).toBe(false);
     expect(__overlaySocketInternals.getConfig()).toEqual({
       endpoint: undefined,
-      authToken: undefined,
     });
   });
 

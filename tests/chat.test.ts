@@ -54,8 +54,7 @@ function createContext(
     } as unknown as Response;
   });
   const env: Env = {
-    OVERLAY_RELAY_URL: undefined,
-    OVERLAY_RELAY_AUTH_TOKEN: undefined,
+    WS_URL: undefined,
     ...envOverrides,
   };
   const ctx = {
@@ -299,8 +298,7 @@ describe("chatHandler", () => {
 
   test("supplies relay overrides when env bindings exist", async () => {
     const { ctx } = createContext(null, {
-      OVERLAY_RELAY_URL: "https://relay.test/test-message",
-      OVERLAY_RELAY_AUTH_TOKEN: "secret",
+      WS_URL: "https://relay.test/test-message",
     });
     const event = createEvent({ content: "hello" });
 
@@ -310,7 +308,6 @@ describe("chatHandler", () => {
       expect.objectContaining({ roomId: "overlay-chat-123" }),
       {
         endpoint: "https://relay.test/test-message",
-        authToken: "secret",
       }
     );
   });

@@ -28,13 +28,11 @@ export const chatHandler = async (
   );
 
   if (trimmedContent.length > 0) {
-    const overlayOverrides =
-      ctx.env.OVERLAY_RELAY_URL || ctx.env.OVERLAY_RELAY_AUTH_TOKEN
-        ? {
-            endpoint: ctx.env.OVERLAY_RELAY_URL,
-            authToken: ctx.env.OVERLAY_RELAY_AUTH_TOKEN,
-          }
-        : undefined;
+    const overlayOverrides = ctx.env.WS_URL
+      ? {
+          endpoint: ctx.env.WS_URL,
+        }
+      : undefined;
 
     console.debug(
       `[Chat] Forwarding overlay message room=${roomId} sender=${

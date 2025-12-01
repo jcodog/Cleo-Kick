@@ -25,6 +25,5 @@ export interface Env {
   readonly ERROR_LOG_PROCESS_NAME?: string;
   readonly LOGTAIL_SOURCE_TOKEN?: string;
   readonly LOGTAIL_ENDPOINT?: string;
-  readonly OVERLAY_RELAY_URL?: string;
-  readonly OVERLAY_RELAY_AUTH_TOKEN?: string;
+  readonly WS_URL?: string;
 }
