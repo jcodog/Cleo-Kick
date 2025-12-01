@@ -1,8 +1,7 @@
 import { createAdaptorServer } from "@hono/node-server";
-import { Server as SocketIOServer } from "socket.io";
 import { createApp } from "./lib/app/createApp";
 import type { Env } from "./lib/config/env";
-import { initializeOverlaySocketServer } from "./lib/overlaySocket";
+import { configureOverlayRelay } from "./lib/overlaySocket";
 
 const parsePort = (value: string | undefined): number => {
   const fallback = 8787;
@@ -40,28 +39,25 @@ const bindings: Env = {
   ERROR_LOG_PROCESS_NAME: process.env.ERROR_LOG_PROCESS_NAME,
   LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
   LOGTAIL_ENDPOINT: process.env.LOGTAIL_ENDPOINT,
+  OVERLAY_RELAY_URL: process.env.OVERLAY_RELAY_URL,
+  OVERLAY_RELAY_AUTH_TOKEN: process.env.OVERLAY_RELAY_AUTH_TOKEN,
 };
 
 const port = parsePort(process.env.PORT);
 const host = process.env.HOST ?? "0.0.0.0";
-const corsOrigin = process.env.CORS_ORIGIN ?? "*";
 const app = createApp();
+
+configureOverlayRelay({
+  endpoint: process.env.OVERLAY_RELAY_URL,
+  authToken: process.env.OVERLAY_RELAY_AUTH_TOKEN,
+});
 
 const httpServer = createAdaptorServer({
   fetch: (request) => app.fetch(request, bindings),
 });
 
-const io = new SocketIOServer(httpServer, {
-  cors: {
-    origin: corsOrigin,
-    methods: ["GET", "POST"],
-  },
-});
-
-initializeOverlaySocketServer(io);
-
 httpServer.listen(port, host, () => {
-  console.log(`HTTP + WebSocket server ready on http://${host}:${port}`);
+  console.log(`HTTP server ready on http://${host}:${port}`);
 });
 
 process.on("unhandledRejection", (reason) => {

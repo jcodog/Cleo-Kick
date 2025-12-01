@@ -5,6 +5,7 @@ import type { KickBroadcasterAuth } from "../src/lib/functions/middleware";
 import type { WebhookContext } from "../src/lib/app/types";
 import { sendMessage } from "../src/lib/functions/messages";
 import { sendOverlayMessage } from "../src/lib/overlaySocket";
+import type { Env } from "../src/lib/config/env";
 import type { DbClient } from "../src/lib/prisma";
 
 vi.mock("../src/lib/functions/messages", () => ({
@@ -37,7 +38,10 @@ function createEvent(
   } as ChatMessageEvent;
 }
 
-function createContext(auth: KickBroadcasterAuth | null) {
+function createContext(
+  auth: KickBroadcasterAuth | null,
+  envOverrides: Partial<Env> = {}
+) {
   const store = new Map<string, unknown>();
   store.set("kickBroadcasterAuth", auth);
   const jsonMock = vi.fn((body: unknown, init?: ResponseInit) => {
@@ -49,9 +53,15 @@ function createContext(auth: KickBroadcasterAuth | null) {
       },
     } as unknown as Response;
   });
+  const env: Env = {
+    OVERLAY_RELAY_URL: undefined,
+    OVERLAY_RELAY_AUTH_TOKEN: undefined,
+    ...envOverrides,
+  };
   const ctx = {
     get: (key: string) => store.get(key),
     json: jsonMock,
+    env,
   } as unknown as WebhookContext;
   return { ctx, jsonMock } as const;
 }
@@ -61,6 +71,11 @@ describe("chatHandler", () => {
 
   beforeEach(() => {
     mockSendOverlayMessage.mockReset();
+    mockSendOverlayMessage.mockResolvedValue({
+      roomId: "overlay-chat-123",
+      author: "tester",
+      text: "hello",
+    });
     mockSendMessage.mockReset();
   });
 
@@ -70,13 +85,16 @@ describe("chatHandler", () => {
 
     const response = await chatHandler(event, db, ctx);
 
-    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
-      roomId: "overlay-chat-123",
-      author: "viewer",
-      text: "just chatting",
-      platform: "kick",
-      avatarUrl: "https://example.com/avatar.png",
-    });
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      {
+        roomId: "overlay-chat-123",
+        author: "viewer",
+        text: "just chatting",
+        platform: "kick",
+        avatarUrl: "https://example.com/avatar.png",
+      },
+      undefined
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
   });
@@ -87,13 +105,16 @@ describe("chatHandler", () => {
 
     const response = await chatHandler(event, db, ctx);
 
-    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
-      roomId: "overlay-chat-123",
-      author: "caster",
-      text: "hello world",
-      platform: "kick",
-      avatarUrl: undefined,
-    });
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      {
+        roomId: "overlay-chat-123",
+        author: "caster",
+        text: "hello world",
+        platform: "kick",
+        avatarUrl: undefined,
+      },
+      undefined
+    );
     expect(response.status).toBe(200);
   });
 
@@ -109,13 +130,16 @@ describe("chatHandler", () => {
 
     const response = await chatHandler(event, db, ctx);
 
-    expect(mockSendOverlayMessage).toHaveBeenCalledWith({
-      roomId: "overlay-chat-123",
-      author: "",
-      text: "hello world",
-      platform: "kick",
-      avatarUrl: undefined,
-    });
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      {
+        roomId: "overlay-chat-123",
+        author: "",
+        text: "hello world",
+        platform: "kick",
+        avatarUrl: undefined,
+      },
+      undefined
+    );
     expect(response.status).toBe(200);
   });
 
@@ -128,6 +152,50 @@ describe("chatHandler", () => {
     expect(mockSendOverlayMessage).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("continues when overlay socket is unavailable", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({ content: "hey" });
+    mockSendOverlayMessage.mockResolvedValueOnce(null);
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    const response = await chatHandler(event, db, ctx);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(mockSendOverlayMessage).toHaveBeenCalled();
+
+    debugSpy.mockRestore();
+  });
+
+  test("reports overlay skip with unknown sender when usernames are missing", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({
+      content: "hey there",
+      sender: {
+        username: undefined as unknown as string,
+        profile_picture: undefined,
+      },
+      broadcaster: {
+        username: undefined as unknown as string,
+        user_id: "123",
+      },
+    });
+    mockSendOverlayMessage.mockResolvedValueOnce(null);
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+    await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).toHaveBeenCalled();
+    expect(
+      debugSpy.mock.calls.some(
+        ([message]) =>
+          typeof message === "string" && message.includes("sender=<unknown>")
+      )
+    ).toBe(true);
+
+    debugSpy.mockRestore();
   });
 
   test("returns 404 when broadcaster is not registered for ping command", async () => {
@@ -227,5 +295,23 @@ describe("chatHandler", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("supplies relay overrides when env bindings exist", async () => {
+    const { ctx } = createContext(null, {
+      OVERLAY_RELAY_URL: "https://relay.test/test-message",
+      OVERLAY_RELAY_AUTH_TOKEN: "secret",
+    });
+    const event = createEvent({ content: "hello" });
+
+    await chatHandler(event, db, ctx);
+
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId: "overlay-chat-123" }),
+      {
+        endpoint: "https://relay.test/test-message",
+        authToken: "secret",
+      }
+    );
   });
 });

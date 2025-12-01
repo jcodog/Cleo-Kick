@@ -1,96 +1,183 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const createServerMock = () => {
-  const broadcastEmit = vi.fn();
-  const to = vi.fn(() => ({ emit: broadcastEmit }));
-  const registeredHandlers = new Map<string, ((...args: any[]) => void)[]>();
+const socketFactory = vi.hoisted(() => vi.fn());
 
-  const on = vi.fn((event: string, handler: (...args: any[]) => void) => {
-    const handlers = registeredHandlers.get(event) ?? [];
-    handlers.push(handler);
-    registeredHandlers.set(event, handlers);
-  });
+vi.mock("socket.io-client", () => ({
+  io: (...args: any[]) => socketFactory(...args),
+}));
 
-  return {
-    io: { on, to } as unknown as import("socket.io").Server,
-    emit: broadcastEmit,
-    to,
-    trigger(event: string, ...args: any[]) {
-      registeredHandlers.get(event)?.forEach((handler) => handler(...args));
-    },
-  } as const;
-};
+type SocketStub = ReturnType<typeof createSocketStub>;
 
-const createSocketStub = (roomId?: unknown) => {
-  const handlers = new Map<string, (...args: any[]) => void>();
+const createSocketStub = () => {
+  const onceHandlers = new Map<string, ((...args: any[]) => void)[]>();
   const socket = {
-    id: "socket-1",
-    handshake: { query: { roomId } },
     emit: vi.fn(),
-    join: vi.fn(),
     disconnect: vi.fn(),
-    on: vi.fn((event: string, handler: (...args: any[]) => void) => {
-      handlers.set(event, handler);
+    once: vi.fn((event: string, handler: (...args: any[]) => void) => {
+      const handlers = onceHandlers.get(event) ?? [];
+      handlers.push(handler);
+      onceHandlers.set(event, handlers);
+      return socket;
     }),
-  };
+    off: vi.fn(),
+  } as const;
 
   return {
     socket,
     trigger(event: string, ...args: any[]) {
-      handlers.get(event)?.(...args);
+      const handlers = onceHandlers.get(event) ?? [];
+      onceHandlers.delete(event);
+      handlers.forEach((handler) => handler(...args));
     },
   } as const;
 };
 
 describe("overlaySocket", () => {
   let sendOverlayMessage: typeof import("../src/lib/overlaySocket").sendOverlayMessage;
-  let initializeOverlaySocketServer: typeof import("../src/lib/overlaySocket").initializeOverlaySocketServer;
+  let configureOverlayRelay: typeof import("../src/lib/overlaySocket").configureOverlayRelay;
   let formatOverlayRoomId: typeof import("../src/lib/overlaySocket").formatOverlayRoomId;
+  let isOverlayRelayConfigured: typeof import("../src/lib/overlaySocket").isOverlayRelayConfigured;
   let __overlaySocketInternals: typeof import("../src/lib/overlaySocket").__overlaySocketInternals;
+  let sockets: SocketStub[];
 
   beforeEach(async () => {
     vi.resetModules();
+    socketFactory.mockClear();
+    sockets = [];
+    socketFactory.mockImplementation(() => {
+      const stub = createSocketStub();
+      sockets.push(stub);
+      return stub.socket;
+    });
+
     ({
       sendOverlayMessage,
-      initializeOverlaySocketServer,
+      configureOverlayRelay,
       formatOverlayRoomId,
+      isOverlayRelayConfigured,
       __overlaySocketInternals,
     } = await import("../src/lib/overlaySocket"));
     __overlaySocketInternals.reset();
   });
 
-  test("warns only once when socket server is unavailable", () => {
+  test("warns only once when the relay endpoint is missing", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const message = { roomId: "overlay-chat-1", author: "bot", text: "hello" };
-    expect(sendOverlayMessage(message)).toBeNull();
-    expect(sendOverlayMessage(message)).toBeNull();
+    expect(await sendOverlayMessage(message)).toBeNull();
+    expect(await sendOverlayMessage(message)).toBeNull();
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(socketFactory).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
-  test("emits chat messages once Socket.IO server is initialized", () => {
-    const server = createServerMock();
-    initializeOverlaySocketServer(server.io);
+  test("emits payloads over the socket client", async () => {
+    configureOverlayRelay({
+      endpoint: "https://relay.test",
+      authToken: "token",
+    });
 
-    const payload = sendOverlayMessage({
+    const sendPromise = sendOverlayMessage({
       roomId: " overlay-chat-123 ",
       author: "  caster  ",
       text: "  hi team  ",
       platform: " kick ",
-      avatarUrl: " ",
+      avatarUrl: " https://avatar ",
     });
+
+    const stub = sockets[0];
+    expect(stub).toBeDefined();
+
+    expect(socketFactory).toHaveBeenCalledWith(
+      "https://relay.test",
+      expect.objectContaining({
+        query: { roomId: "overlay-chat-123" },
+        auth: { token: "token" },
+      })
+    );
+
+    stub.trigger("connect");
+    const payload = await sendPromise;
 
     expect(payload).toEqual({
       roomId: "overlay-chat-123",
       author: "caster",
       text: "hi team",
       platform: "kick",
+      avatarUrl: "https://avatar",
+    });
+
+    expect(stub.socket.emit).toHaveBeenCalledWith("chat:send", {
+      text: "hi team",
+      author: "caster",
+      platform: "kick",
+      avatarUrl: "https://avatar",
+    });
+    expect(stub.socket.disconnect).toHaveBeenCalled();
+  });
+
+  test("guards against duplicate finalize calls", async () => {
+    configureOverlayRelay({
+      endpoint: "https://relay.test",
+      authToken: "token",
+    });
+
+    const sendPromise = sendOverlayMessage({
+      roomId: "overlay-chat-dup",
+      author: "caster",
+      text: "hi",
+    });
+
+    const stub = sockets[0];
+    stub.trigger("connect");
+    stub.trigger("connect_error", new Error("late"));
+
+    const payload = await sendPromise;
+    expect(payload).toEqual({
+      roomId: "overlay-chat-dup",
+      author: "caster",
+      text: "hi",
+      platform: undefined,
       avatarUrl: undefined,
     });
-    expect(server.to).toHaveBeenCalledWith("overlay-chat-123");
-    expect(server.emit).toHaveBeenCalledWith("chat:message", payload);
+    expect(stub.socket.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns null when the socket connection fails", async () => {
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+
+    const sendPromise = sendOverlayMessage({
+      roomId: "overlay-chat-500",
+      author: "tester",
+      text: "hello",
+    });
+
+    const stub = sockets[0];
+    stub.trigger("connect_error", new Error("boom"));
+
+    expect(await sendPromise).toBeNull();
+    expect(stub.socket.disconnect).toHaveBeenCalled();
+  });
+
+  test("returns null when the socket emit fails", async () => {
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+
+    const sendPromise = sendOverlayMessage({
+      roomId: "overlay-chat-emit",
+      author: "tester",
+      text: "hi",
+    });
+
+    const stub = sockets[0];
+    stub.socket.emit.mockImplementation(() => {
+      throw new Error("emit failure");
+    });
+
+    stub.trigger("connect");
+
+    expect(await sendPromise).toBeNull();
+    expect(stub.socket.disconnect).toHaveBeenCalled();
   });
 
   test("formatOverlayRoomId ensures the expected prefix", () => {
@@ -99,53 +186,85 @@ describe("overlaySocket", () => {
     expect(formatOverlayRoomId("   ")).toBe("");
   });
 
-  test("disconnects sockets that do not declare a roomId", () => {
-    const server = createServerMock();
-    initializeOverlaySocketServer(server.io);
-
-    const { socket } = createSocketStub(undefined);
-    server.trigger("connection", socket as any);
-
-    expect(socket.emit).toHaveBeenCalledWith(
-      "server:error",
-      expect.objectContaining({ message: expect.stringContaining("roomId") })
-    );
-    expect(socket.disconnect).toHaveBeenCalledWith(true);
-    expect(socket.join).not.toHaveBeenCalled();
+  test("reports relay readiness state", () => {
+    expect(isOverlayRelayConfigured()).toBe(false);
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+    expect(isOverlayRelayConfigured()).toBe(true);
   });
 
-  test("handles chat:send payloads and defaults the author", () => {
-    const server = createServerMock();
-    initializeOverlaySocketServer(server.io);
-
-    const stub = createSocketStub("room-a");
-    server.trigger("connection", stub.socket as any);
-
-    stub.trigger("chat:send", { text: "  hello overlay  " });
-
-    expect(server.emit).toHaveBeenCalledWith(
-      "chat:message",
-      expect.objectContaining({
-        roomId: "room-a",
-        text: "hello overlay",
-        author: stub.socket.id,
-      })
-    );
+  test("exposes relay config snapshots", () => {
+    configureOverlayRelay({
+      endpoint: "https://relay.test",
+      authToken: "secret",
+    });
+    expect(__overlaySocketInternals.getConfig()).toEqual({
+      endpoint: "https://relay.test",
+      authToken: "secret",
+    });
   });
 
-  test("reports chat validation errors back to the socket", () => {
-    const server = createServerMock();
-    initializeOverlaySocketServer(server.io);
+  test("treats blank relay config values as unset", () => {
+    configureOverlayRelay({ endpoint: "   ", authToken: "   " });
 
-    const stub = createSocketStub(["room-b"]);
-    server.trigger("connection", stub.socket as any);
+    expect(isOverlayRelayConfigured()).toBe(false);
+    expect(__overlaySocketInternals.getConfig()).toEqual({
+      endpoint: undefined,
+      authToken: undefined,
+    });
+  });
 
-    stub.trigger("chat:send", { text: "   " });
+  test("skips emitting when roomId or text are missing", async () => {
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(stub.socket.emit).toHaveBeenCalledWith(
-      "server:error",
-      expect.objectContaining({ message: "text is required" })
-    );
-    expect(server.emit).not.toHaveBeenCalled();
+    const result = await sendOverlayMessage({
+      roomId: "   ",
+      text: "   ",
+    });
+
+    expect(result).toBeNull();
+    expect(socketFactory).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  test("sanitizes optional payload fields", async () => {
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+
+    const sendPromise = sendOverlayMessage({
+      roomId: "overlay-chat-optional",
+      author: "   ",
+      text: "hi",
+      platform: "   ",
+      avatarUrl: "   ",
+    });
+
+    const stub = sockets[0];
+    stub.trigger("connect");
+
+    const payload = await sendPromise;
+    expect(payload).toEqual({
+      roomId: "overlay-chat-optional",
+      author: "server",
+      text: "hi",
+      platform: undefined,
+      avatarUrl: undefined,
+    });
+  });
+
+  test("defaults the author to server when omitted", async () => {
+    configureOverlayRelay({ endpoint: "https://relay.test" });
+
+    const sendPromise = sendOverlayMessage({
+      roomId: "overlay-chat-default-author",
+      text: "hello",
+    });
+
+    const stub = sockets[0];
+    stub.trigger("connect");
+
+    const payload = await sendPromise;
+    expect(payload?.author).toBe("server");
   });
 });

@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import type { AppEnv } from "../types";
 import {
   formatOverlayRoomId,
-  isOverlaySocketServerReady,
+  isOverlayRelayConfigured,
   sendOverlayMessage,
   type OverlayMessage,
 } from "../../overlaySocket";
@@ -25,8 +25,14 @@ const sanitizeOptional = (value?: string): string | undefined => {
 
 export function registerOverlayRoutes(app: Hono<AppEnv>): void {
   app.post("/test-message", async (c) => {
-    if (!isOverlaySocketServerReady()) {
-      return c.json({ message: "Socket server not ready" }, 503);
+    const overrides = {
+      endpoint: c.env.OVERLAY_RELAY_URL,
+      authToken: c.env.OVERLAY_RELAY_AUTH_TOKEN,
+    };
+
+    const hasEnvOverrides = Boolean(overrides.endpoint?.trim().length);
+    if (!isOverlayRelayConfigured() && !hasEnvOverrides) {
+      return c.json({ message: "Overlay relay not configured" }, 503);
     }
 
     const body = await c.req.json<TestMessageRequest>().catch(() => null);
@@ -42,13 +48,16 @@ export function registerOverlayRoutes(app: Hono<AppEnv>): void {
     const text = body.text?.trim() || "Test message";
     const author = body.author?.trim() || "hono:test";
 
-    const message: OverlayMessage | null = sendOverlayMessage({
-      roomId: formattedRoomId,
-      text,
-      author,
-      platform: sanitizeOptional(body.platform),
-      avatarUrl: sanitizeOptional(body.avatarUrl),
-    });
+    const message: OverlayMessage | null = await sendOverlayMessage(
+      {
+        roomId: formattedRoomId,
+        text,
+        author,
+        platform: sanitizeOptional(body.platform),
+        avatarUrl: sanitizeOptional(body.avatarUrl),
+      },
+      overrides
+    );
 
     if (!message) {
       return c.json({ message: "Unable to publish chat message" }, 500);

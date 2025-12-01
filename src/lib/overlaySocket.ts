@@ -1,4 +1,4 @@
-import type { Server as SocketIOServer, Socket } from "socket.io";
+import { io, type Socket } from "socket.io-client";
 
 export type OverlayMessage = {
   roomId: string;
@@ -16,13 +16,19 @@ export type OverlayMessageInput = {
   avatarUrl?: string;
 };
 
-let overlayServer: SocketIOServer | null = null;
-const socketRooms = new Map<string, string>();
-const OVERLAY_ROOM_PREFIX = "overlay-chat-";
-let serverNotReadyWarningLogged = false;
+export type OverlayRelayConfig = {
+  endpoint?: string;
+  authToken?: string;
+};
 
+type ResolvedOverlayRelayConfig = {
+  endpoint: string;
+  authToken?: string;
+};
+
+const OVERLAY_ROOM_PREFIX = "overlay-chat-";
 const SERVER_NOT_READY_WARNING =
-  "[OverlaySocket] Socket.IO server is not ready; overlay messages will be dropped";
+  "[OverlaySocket] Overlay relay endpoint is not configured; overlay messages will be dropped";
 
 const trimToOptional = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
@@ -32,12 +38,17 @@ const trimToOptional = (value: unknown): string | undefined => {
   return text.length > 0 ? text : undefined;
 };
 
-const normalizeRoomId = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    value = value[0];
+const sanitizeEndpoint = (value?: string): string | null => {
+  if (typeof value !== "string") {
+    return null;
   }
-  return typeof value === "string" ? value.trim() : "";
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };
+
+let relayEndpoint: string | null = null;
+let relayAuthToken: string | undefined;
+let serverNotReadyWarningLogged = false;
 
 export const formatOverlayRoomId = (value: string): string => {
   const trimmed = value.trim();
@@ -49,76 +60,37 @@ export const formatOverlayRoomId = (value: string): string => {
     : `${OVERLAY_ROOM_PREFIX}${trimmed}`;
 };
 
-const coerceText = (value: unknown): string => {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  return String(value ?? "").trim();
-};
+const resolveRelayConfig = (
+  overrides?: OverlayRelayConfig
+): ResolvedOverlayRelayConfig | null => {
+  const endpoint =
+    sanitizeEndpoint(overrides?.endpoint) ?? relayEndpoint ?? null;
 
-const emitSocketError = (socket: Socket, message: string) => {
-  socket.emit("server:error", { message });
-};
-
-function handleSocketConnection(socket: Socket) {
-  const roomId = normalizeRoomId(socket.handshake.query.roomId);
-  if (!roomId) {
-    emitSocketError(socket, "roomId query parameter is required");
-    socket.disconnect(true);
-    return;
+  if (!endpoint) {
+    return null;
   }
 
-  socketRooms.set(socket.id, roomId);
-  socket.join(roomId);
-  socket.emit("server:ack", { type: "join", roomId });
+  const authToken = trimToOptional(overrides?.authToken) ?? relayAuthToken;
+  return { endpoint, authToken };
+};
 
-  socket.on("chat:send", (payload?: Partial<OverlayMessageInput>) => {
-    try {
-      const text = coerceText(payload?.text).trim();
-      if (!text) {
-        emitSocketError(socket, "text is required");
-        return;
-      }
-
-      const author = coerceText(payload?.author ?? socket.id) || socket.id;
-
-      sendOverlayMessage({
-        roomId,
-        text,
-        author,
-        platform: trimToOptional(payload?.platform),
-        avatarUrl: trimToOptional(payload?.avatarUrl),
-      });
-    } catch (error) {
-      emitSocketError(
-        socket,
-        error instanceof Error
-          ? error.message
-          : "Failed to dispatch chat message"
-      );
-    }
-  });
-
-  socket.on("disconnect", () => {
-    socketRooms.delete(socket.id);
-  });
-}
-
-export function initializeOverlaySocketServer(server: SocketIOServer): void {
-  overlayServer = server;
+export function configureOverlayRelay(config: OverlayRelayConfig): void {
+  relayEndpoint = sanitizeEndpoint(config.endpoint);
+  relayAuthToken = trimToOptional(config.authToken);
   serverNotReadyWarningLogged = false;
-  socketRooms.clear();
-  overlayServer.on("connection", handleSocketConnection);
 }
 
-export function isOverlaySocketServerReady(): boolean {
-  return overlayServer !== null;
+export function isOverlayRelayConfigured(): boolean {
+  return Boolean(relayEndpoint);
 }
 
-export function sendOverlayMessage(
-  message: OverlayMessageInput
-): OverlayMessage | null {
-  if (!overlayServer) {
+export async function sendOverlayMessage(
+  message: OverlayMessageInput,
+  overrides?: OverlayRelayConfig
+): Promise<OverlayMessage | null> {
+  const resolvedConfig = resolveRelayConfig(overrides);
+
+  if (!resolvedConfig) {
     if (!serverNotReadyWarningLogged) {
       console.warn(SERVER_NOT_READY_WARNING);
       serverNotReadyWarningLogged = true;
@@ -147,18 +119,81 @@ export function sendOverlayMessage(
     avatarUrl: trimToOptional(message.avatarUrl),
   };
 
-  overlayServer.to(roomId).emit("chat:message", payload);
-  return payload;
+  const dispatched = await emitOverlayMessage(roomId, payload, resolvedConfig);
+  return dispatched ? payload : null;
 }
+
+const emitOverlayMessage = async (
+  roomId: string,
+  payload: OverlayMessage,
+  config: ResolvedOverlayRelayConfig
+): Promise<boolean> => {
+  return new Promise<boolean>((resolve) => {
+    const socket = createSocketClient(roomId, config);
+
+    let settled = false;
+
+    const finalize = (success: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.off("connect", handleConnect);
+      socket.off("connect_error", handleError);
+      socket.disconnect();
+      resolve(success);
+    };
+
+    const handleConnect = () => {
+      try {
+        socket.emit("chat:send", {
+          text: payload.text,
+          author: payload.author,
+          platform: payload.platform,
+          avatarUrl: payload.avatarUrl,
+        });
+        finalize(true);
+      } catch (error) {
+        console.error("[OverlaySocket] Failed to emit chat payload", error);
+        finalize(false);
+      }
+    };
+
+    const handleError = (error: unknown) => {
+      console.error(
+        "[OverlaySocket] Overlay socket client failed to connect",
+        error
+      );
+      finalize(false);
+    };
+
+    socket.once("connect", handleConnect);
+    socket.once("connect_error", handleError);
+  });
+};
+
+const createSocketClient = (
+  roomId: string,
+  config: ResolvedOverlayRelayConfig
+): Socket => {
+  return io(config.endpoint, {
+    transports: ["websocket"],
+    forceNew: true,
+    query: { roomId },
+    auth: config.authToken ? { token: config.authToken } : undefined,
+  });
+};
 
 export const __overlaySocketInternals = {
   reset() {
-    overlayServer = null;
-    socketRooms.clear();
+    relayEndpoint = null;
+    relayAuthToken = undefined;
     serverNotReadyWarningLogged = false;
   },
-  getSocketRooms() {
-    return new Map(socketRooms);
+  getConfig(): OverlayRelayConfig {
+    return {
+      endpoint: relayEndpoint ?? undefined,
+      authToken: relayAuthToken,
+    };
   },
-  handleSocketConnection,
 };

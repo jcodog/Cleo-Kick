@@ -107,7 +107,8 @@ under your preferred process supervisor.
 ## Configuration
 
 - Set `DASHBOARD_URL` in `wrangler.json` (or via Cloudflare dashboard) to tell the root route where to redirect users for chatbot management.
-- Define `HOST` and `CORS_ORIGIN` when running the Node adapter so the Socket.IO relay binds to the correct interface and enforces the appropriate origin policy.
+- Provide `HOST` when running the Node adapter if you need to bind to a specific interface (defaults to `0.0.0.0`).
+- Point `OVERLAY_RELAY_URL` at the remote WebSocket relay HTTP endpoint (for example the `/test-message` route exposed by the dedicated overlay service) and optionally set `OVERLAY_RELAY_AUTH_TOKEN` if the relay expects bearer authentication.
 
 ## Routes
 
@@ -115,7 +116,7 @@ under your preferred process supervisor.
 - `POST /webhook` — accepts Kick webhook events (expects JSON payloads).
 - `GET /health` — lightweight readiness probe.
 - `POST /debug/test-email` — sends a MailChannels test message to the configured developer inbox.
-- `POST /test-message` — pushes a synthetic overlay chat payload through the Socket.IO relay for quick manual verification.
+- `POST /test-message` — pushes a synthetic overlay chat payload through the configured relay endpoint for quick manual verification.
 
 ## Project Structure
 

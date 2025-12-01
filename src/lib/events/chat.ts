@@ -28,24 +28,34 @@ export const chatHandler = async (
   );
 
   if (trimmedContent.length > 0) {
+    const overlayOverrides =
+      ctx.env.OVERLAY_RELAY_URL || ctx.env.OVERLAY_RELAY_AUTH_TOKEN
+        ? {
+            endpoint: ctx.env.OVERLAY_RELAY_URL,
+            authToken: ctx.env.OVERLAY_RELAY_AUTH_TOKEN,
+          }
+        : undefined;
+
     console.debug(
       `[Chat] Forwarding overlay message room=${roomId} sender=${
         username || "<unknown>"
       }`
     );
-    const overlayPayload = sendOverlayMessage({
-      roomId,
-      author: username,
-      text: content,
-      platform: "kick",
-      avatarUrl,
-    });
+    const overlayPayload = await sendOverlayMessage(
+      {
+        roomId,
+        author: username,
+        text: content,
+        platform: "kick",
+        avatarUrl,
+      },
+      overlayOverrides
+    );
 
     if (!overlayPayload) {
+      const displayName = username || "<unknown>";
       console.debug(
-        `[Chat] Overlay socket not ready; skipped room=${roomId} sender=${
-          username || "<unknown>"
-        }`
+        `[Chat] Overlay relay not ready; skipped room=${roomId} sender=${displayName}`
       );
     }
   } else {
