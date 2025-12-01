@@ -17,9 +17,15 @@ export const chatHandler = async (
 ): Promise<Response> => {
   const content = event.content ?? "";
   const trimmedContent = content.trim();
-  const username = event.sender?.username ?? event.broadcaster.username ?? "";
-  // const avatarUrl = event.sender?.profile_picture; // temp removed due to bug
-  const avatarUrl = `https://api.stream-stuff.com/kickpfp.php?streamer=${username}`;
+  const username = (
+    event.sender?.username ??
+    event.broadcaster.username ??
+    ""
+  ).trim();
+  const avatarUrl = await resolveAvatarUrl(
+    username,
+    event.sender?.profile_picture ?? undefined
+  );
   const roomId = `overlay-chat-${event.broadcaster.user_id}`;
 
   console.log(
@@ -120,4 +126,54 @@ export const chatHandler = async (
   }
 
   return ctx.json({ ok: true }, { status: 200 });
+};
+
+type AvatarLookupResponse = {
+  profile_pic?: string | null;
+  user?: string | null;
+};
+
+const resolveAvatarUrl = async (
+  username: string,
+  fallback?: string
+): Promise<string | undefined> => {
+  const trimmedUsername = username.trim();
+  if (!trimmedUsername) {
+    return sanitizeAvatar(fallback);
+  }
+
+  const requestUrl = `https://api.stream-stuff.com/kickpfp.php?streamer=${encodeURIComponent(
+    trimmedUsername
+  )}`;
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: "GET",
+      headers: { accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[Chat] Avatar lookup failed streamer=${trimmedUsername} status=${response.status}`
+      );
+      return sanitizeAvatar(fallback);
+    }
+
+    const payload = (await response.json()) as AvatarLookupResponse;
+    return sanitizeAvatar(payload.profile_pic) ?? sanitizeAvatar(fallback);
+  } catch (error) {
+    console.error(
+      `[Chat] Avatar lookup errored streamer=${trimmedUsername}`,
+      error
+    );
+    return sanitizeAvatar(fallback);
+  }
+};
+
+const sanitizeAvatar = (value?: string | null): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };

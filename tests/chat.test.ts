@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+  type Mock,
+} from "vitest";
 import type { ChatMessageEvent } from "kick-api-types/payloads";
 import { chatHandler } from "../src/lib/events/chat";
 import type { KickBroadcasterAuth } from "../src/lib/functions/middleware";
@@ -18,6 +27,16 @@ vi.mock("../src/lib/overlaySocket", () => ({
 
 const mockSendMessage = sendMessage as unknown as Mock;
 const mockSendOverlayMessage = sendOverlayMessage as unknown as Mock;
+const originalFetch = globalThis.fetch;
+const fetchMock = vi.fn();
+
+beforeAll(() => {
+  globalThis.fetch = fetchMock as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function createEvent(
   overrides: Partial<ChatMessageEvent> = {}
@@ -69,6 +88,23 @@ describe("chatHandler", () => {
   const db = {} as DbClient;
 
   beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input: URL | Request | string) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.href
+          : input.url;
+      const streamer = new URL(url).searchParams.get("streamer") ?? "";
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { profile_pic: `https://avatars.test/${streamer}.png` };
+        },
+      } as Response;
+    });
     mockSendOverlayMessage.mockReset();
     mockSendOverlayMessage.mockResolvedValue({
       roomId: "overlay-chat-123",
@@ -90,7 +126,7 @@ describe("chatHandler", () => {
         author: "viewer",
         text: "just chatting",
         platform: "kick",
-        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=viewer",
+        avatarUrl: "https://avatars.test/viewer.png",
       },
       undefined
     );
@@ -110,7 +146,7 @@ describe("chatHandler", () => {
         author: "caster",
         text: "hello world",
         platform: "kick",
-        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=caster",
+        avatarUrl: "https://avatars.test/caster.png",
       },
       undefined
     );
@@ -135,11 +171,12 @@ describe("chatHandler", () => {
         author: "",
         text: "hello world",
         platform: "kick",
-        avatarUrl: "https://api.stream-stuff.com/kickpfp.php?streamer=",
+        avatarUrl: undefined,
       },
       undefined
     );
     expect(response.status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("does not emit overlay events for blank messages", async () => {
@@ -197,6 +234,89 @@ describe("chatHandler", () => {
     debugSpy.mockRestore();
   });
 
+  test("uses sender avatar when lookup fails", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({
+      sender: {
+        username: "viewer",
+        profile_picture: "https://kick-cdn.test/viewer.png",
+      },
+    });
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: false,
+          status: 502,
+          async json() {
+            return { profile_pic: null };
+          },
+        } as Response)
+    );
+
+    await chatHandler(event, db, ctx);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        avatarUrl: "https://kick-cdn.test/viewer.png",
+      }),
+      undefined
+    );
+  });
+
+  test("uses fallback avatar when lookup throws", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({
+      sender: {
+        username: "viewer",
+        profile_picture: "https://kick-cdn.test/viewer.png",
+      },
+    });
+    fetchMock.mockImplementationOnce(async () => {
+      throw new Error("network boom");
+    });
+
+    await chatHandler(event, db, ctx);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        avatarUrl: "https://kick-cdn.test/viewer.png",
+      }),
+      undefined
+    );
+  });
+
+  test("uses sender avatar when lookup returns blank avatar", async () => {
+    const { ctx } = createContext(null);
+    const event = createEvent({
+      sender: {
+        username: "viewer",
+        profile_picture: "https://kick-cdn.test/fallback.png",
+      },
+    });
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          async json() {
+            return { profile_pic: "   " };
+          },
+        } as Response)
+    );
+
+    await chatHandler(event, db, ctx);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockSendOverlayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        avatarUrl: "https://kick-cdn.test/fallback.png",
+      }),
+      undefined
+    );
+  });
+
   test("returns 404 when broadcaster is not registered for ping command", async () => {
     const { ctx } = createContext(null);
     const event = createEvent({ content: "!ping" });
@@ -209,6 +329,7 @@ describe("chatHandler", () => {
       message: "Broadcaster not registered",
     });
     expect(mockSendOverlayMessage).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     errorSpy.mockRestore();
   });
@@ -269,6 +390,7 @@ describe("chatHandler", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("ignores events with missing content", async () => {
@@ -310,5 +432,6 @@ describe("chatHandler", () => {
         endpoint: "https://relay.test/test-message",
       }
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
