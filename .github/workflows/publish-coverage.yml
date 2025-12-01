@@ -65,6 +65,8 @@ jobs:
   deploy-app:
     needs: deploy-coverage
     runs-on: self-hosted
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
     steps:
       - uses: actions/checkout@v4
 
